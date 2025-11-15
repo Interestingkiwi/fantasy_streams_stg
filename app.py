@@ -828,10 +828,20 @@ def matchup_page_data():
 def get_matchup_stats():
     league_id = session.get('league_id')
     data = request.get_json()
-    week_num = data.get('week')
+
+    # --- [START] FIX 1: Convert week_num to int ---
+    week_num_str = data.get('week')
     team1_name = data.get('team1_name')
     team2_name = data.get('team2_name')
     simulated_moves = data.get('simulated_moves', [])
+
+    if not week_num_str:
+        return jsonify({'error': 'Week number is required.'}), 400
+    try:
+        week_num = int(week_num_str) # Convert
+    except ValueError:
+        return jsonify({'error': 'Invalid week number format.'}), 400
+    # --- [END] FIX 1 ---
 
     conn, error_msg = get_db_connection_for_league(league_id)
     if not conn:
@@ -915,33 +925,40 @@ def get_matchup_stats():
           if row['category'] in all_categories_to_fetch:
               stats[team_key]['live'][row['category']] = row.get('total', 0)
 
-      # --- [START] NEW BLOCK: Calculate Live Derived Stats & Apply SHO Fix ---
+        # ... (Live Derived Stats block) ...
         for team_key in ['team1', 'team2']:
           live_stats = stats[team_key]['live']
-
-          # Apply TOI/G fix for shutouts
-          # This assumes daily_player_stats stores 0 TOI/G for shutouts,
-          # but does store 1.0 for the SHO category itself.
           if 'SHO' in live_stats and live_stats['SHO'] > 0:
-              # live_stats['SHO'] is the SUM of shutouts (e.g., 2.0)
-              # We add 60 minutes to TOI/G for *each* shutout.
               live_stats['TOI/G'] += (live_stats['SHO'] * 60)
-
-          # Re-calculate live GAA and SVpct based on summed components
-          # The values from the DB are just sums of daily GAA/SVpct, which is incorrect.
           if 'GAA' in live_stats:
               live_stats['GAA'] = (live_stats.get('GA', 0) * 60) / live_stats['TOI/G'] if live_stats.get('TOI/G', 0) > 0 else 0
-
           if 'SVpct' in live_stats:
               live_stats['SVpct'] = live_stats.get('SV', 0) / live_stats['SA'] if live_stats.get('SA', 0) > 0 else 0
-              # --- [END] NEW BLOCK ---
 
         # --- Calculate ROW (Rest of Week) Stats ---
         stats['team1']['row'] = copy.deepcopy(stats['team1']['live'])
         stats['team2']['row'] = copy.deepcopy(stats['team2']['live'])
 
-        team1_ranked_roster = _get_ranked_roster_for_week(cursor, team1_id, week_num)
-        team2_ranked_roster = _get_ranked_roster_for_week(cursor, team2_id, week_num)
+        # --- [START] FIX 2: Pre-fetch schedule and stats ---
+        cursor.execute("SELECT game_date, home_team, away_team FROM schedule")
+        schedule_data = decode_dict_values([dict(row) for row in cursor.fetchall()])
+
+        team_stats_map = {}
+        cursor.execute("SELECT * FROM team_stats_summary")
+        for row in cursor.fetchall():
+            team_stats_map[row['team_tricode']] = dict(row)
+
+        cursor.execute("SELECT * FROM team_stats_weekly")
+        for row in cursor.fetchall():
+            team_tricode = row['team_tricode']
+            if team_tricode in team_stats_map:
+                team_stats_map[team_tricode].update(dict(row))
+        # --- [END] FIX 2 ---
+
+        # --- [START] MODIFICATION: Pass new args to helper ---
+        team1_ranked_roster = _get_ranked_roster_for_week(cursor, team1_id, week_num, schedule_data, team_stats_map)
+        team2_ranked_roster = _get_ranked_roster_for_week(cursor, team2_id, week_num, schedule_data, team_stats_map)
+        # --- [END] MODIFICATION ---
 
         rosters_to_update = [team1_ranked_roster, team2_ranked_roster]
 
@@ -954,7 +971,6 @@ def get_matchup_stats():
 
             # --- NEW: Build Team 1's daily roster ---
             t1_daily_roster = _get_daily_simulated_roster(team1_ranked_roster, simulated_moves, current_date_str)
-            # Use int for robust matching
 
             t1_players_today = []
             for p in t1_daily_roster:
@@ -987,7 +1003,6 @@ def get_matchup_stats():
                             stat_val = player_proj.get(category) or 0
                             stats['team1']['row'][category] += stat_val
 
-                        # Safely get position string from either key
                         pos_str = starter.get('eligible_positions') or starter.get('positions', '')
                         if 'G' in pos_str.split(','):
                             stats['team1']['row']['TOI/G'] += 60
@@ -999,7 +1014,6 @@ def get_matchup_stats():
                             stat_val = player_proj.get(category) or 0
                             stats['team2']['row'][category] += stat_val
 
-                        # Safely get position string from either key
                         pos_str = starter.get('eligible_positions') or starter.get('positions', '')
                         if 'G' in pos_str.split(','):
                             stats['team2']['row']['TOI/G'] += 60
@@ -1009,11 +1023,8 @@ def get_matchup_stats():
         # --- Final ROW Calculations and Rounding ---
         for team_key in ['team1', 'team2']:
             row_stats = stats[team_key]['row']
-
             gaa = (row_stats.get('GA', 0) * 60) / row_stats['TOI/G'] if row_stats.get('TOI/G', 0) > 0 else 0
             sv_pct = row_stats.get('SV', 0) / row_stats['SA'] if row_stats.get('SA', 0) > 0 else 0
-
-            # Apply rounding to all stats
             for cat, value in row_stats.items():
                 if cat == 'GAA':
                     row_stats[cat] = round(gaa, 2)
@@ -1021,32 +1032,25 @@ def get_matchup_stats():
                     row_stats[cat] = round(sv_pct, 3)
                 elif isinstance(value, (int, float)) and cat not in ['GAA', 'SVpct']:
                     row_stats[cat] = round(value, 1)
+
         for day_date in days_in_week:
             day_str = day_date.strftime('%Y-%m-%d')
-
-            # --- NEW: Build Team 1's daily roster (repeat logic) ---
             t1_daily_roster = _get_daily_simulated_roster(team1_ranked_roster, simulated_moves, day_str)
-
             t1_players_today = []
             for p in t1_daily_roster:
                 game_dates = p.get('game_dates_this_week') or p.get('game_dates_this_week_full', [])
                 if day_str in game_dates:
                     t1_players_today.append(p)
-            # --- END NEW ---
-
             team2_players_today = [p for p in team2_ranked_roster if day_str in p.get('game_dates_this_week', [])]
-
             team1_lineup = get_optimal_lineup(t1_players_today, lineup_settings)
             team2_lineup = get_optimal_lineup(team2_players_today, lineup_settings)
-
             team1_starters = [player for pos_players in team1_lineup.values() for player in pos_players]
             team2_starters = [player for pos_players in team2_lineup.values() for player in pos_players]
-
             stats['game_counts']['team1_total'] += len(team1_starters)
             stats['game_counts']['team2_total'] += len(team2_starters)
+
         # --- Calculate Unused Roster Spots for Team 1 ---
         stats['team1_unused_spots'] = _calculate_unused_spots(days_in_week, team1_ranked_roster, lineup_settings, simulated_moves)
-
 
         return jsonify(stats)
 
