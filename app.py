@@ -2833,6 +2833,7 @@ def get_free_agent_data():
         cursor = conn.cursor()
         request_data = request.get_json(silent=True) or {}
 
+        # Get Skater/Goalie categories
         cursor.execute("SELECT category, scoring_group FROM scoring ORDER BY scoring_group DESC, stat_id")
         all_categories_raw = cursor.fetchall()
         skater_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'offense']
@@ -2846,6 +2847,7 @@ def get_free_agent_data():
         unchecked_categories = [cat for cat in all_scoring_categories if cat not in checked_categories]
         all_cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
 
+        # Determine target week
         selected_week_str = request_data.get('selected_week')
         target_week = None
 
@@ -2868,7 +2870,7 @@ def get_free_agent_data():
         else:
             logging.info(f"Using selected week: {target_week}")
 
-        # --- [START] MODIFICATION: Fetch schedule_data, remove full_schedule_map ---
+        # Pre-fetch schedule and stats for all teams
         cursor.execute("SELECT game_date, home_team, away_team FROM schedule")
         schedule_data = decode_dict_values([dict(row) for row in cursor.fetchall()])
 
@@ -2882,17 +2884,15 @@ def get_free_agent_data():
             team_tricode = row['team_tricode']
             if team_tricode in team_stats_map:
                 team_stats_map[team_tricode].update(dict(row))
-        # --- [END] MODIFICATION ---
 
-
+        # Get Waiver Players
         cursor.execute("SELECT player_id FROM waiver_players")
         waiver_player_ids = [row['player_id'] for row in cursor.fetchall()]
-        # --- MODIFIED: Pass schedule_data (the list) instead of full_schedule_map
         waiver_players = _get_ranked_players(cursor, waiver_player_ids, all_cat_rank_columns, target_week, schedule_data, team_stats_map)
 
+        # Get Free Agents
         cursor.execute("SELECT player_id FROM free_agents")
         free_agent_ids = [row['player_id'] for row in cursor.fetchall()]
-        # --- MODIFIED: Pass schedule_data (the list) instead of full_schedule_map
         free_agents = _get_ranked_players(cursor, free_agent_ids, all_cat_rank_columns, target_week, schedule_data, team_stats_map)
 
         # Recalculate total_cat_rank based on checked/unchecked categories
@@ -2909,7 +2909,7 @@ def get_free_agent_data():
                             total_rank += rank_value
                 player['total_cat_rank'] = round(total_rank, 2)
 
-        # --- Calculate Unused Roster Spots (No changes here) ---
+        # --- Calculate Unused Roster Spots for the SELECTED Team ---
         unused_roster_spots = None
         team_ranked_roster = []
         days_in_week_data = []
@@ -2936,15 +2936,18 @@ def get_free_agent_data():
                     cursor.execute("SELECT position, position_count FROM lineup_settings WHERE position NOT IN ('BN', 'IR', 'IR+')")
                     lineup_settings = {row['position']: row['position_count'] for row in cursor.fetchall()}
 
-                    team_ranked_roster = _get_ranked_roster_for_week(cursor, team_id, target_week)
+                    # --- [START] MODIFICATION: Pass the missing arguments ---
+                    team_ranked_roster = _get_ranked_roster_for_week(cursor, team_id, target_week, schedule_data, team_stats_map)
+                    # --- [END] MODIFICATION ---
+
                     unused_roster_spots = _calculate_unused_spots(days_in_week, team_ranked_roster, lineup_settings, simulated_moves)
 
         return jsonify({
             'waiver_players': waiver_players,
             'free_agents': free_agents,
-            'scoring_categories': all_scoring_categories,
-            'skater_categories': skater_categories,
-            'goalie_categories': goalie_categories,
+            'scoring_categories': all_scoring_categories, # For checkboxes
+            'skater_categories': skater_categories,     # For skater table
+            'goalie_categories': goalie_categories,     # For goalie table
             'ranked_categories': all_scoring_categories,
             'checked_categories': checked_categories,
             'unused_roster_spots': unused_roster_spots,
