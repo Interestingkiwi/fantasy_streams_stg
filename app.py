@@ -350,7 +350,7 @@ def get_optimal_lineup(players, lineup_settings):
     return lineup
 
 
-ddef _get_ranked_roster_for_week(cursor, team_id, week_num, team_stats_map):
+def _get_ranked_roster_for_week(cursor, team_id, week_num, team_stats_map):
     """
     Internal helper to fetch a team's full roster for a week and enrich it
     with game schedules and player performance ranks.
