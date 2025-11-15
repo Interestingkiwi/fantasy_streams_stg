@@ -646,9 +646,11 @@
                     statKeys = ["gf_gm", "gf_gm_weekly", "sogf_gm", "sogf_gm_weekly"];
                     totalAvgs = { gf_gm: 0, sogf_gm: 0, gf_gm_weekly: 0, sogf_gm_weekly: 0, count: 0 };
                 } else {
-                    headers = ["Date", "Opp", "GA/G (Szn)", "GA/G (Last Wk)", "SOGA/G (Szn)", "SOGA/G (Last Wk)"];
-                    statKeys = ["ga_gm", "ga_gm_weekly", "soga_gm", "soga_gm_weekly"];
-                    totalAvgs = { ga_gm: 0, soga_gm: 0, ga_gm_weekly: 0, soga_gm_weekly: 0, count: 0 };
+                    // --- [START] MODIFICATION ---
+                    headers = ["Date", "Opp", "GA/G (Szn)", "GA/G (Last Wk)", "SOGA/G (Szn)", "SOGA/G (Last Wk)", "PK% (Szn)", "PK% (Last Wk)"];
+                    statKeys = ["ga_gm", "ga_gm_weekly", "soga_gm", "soga_gm_weekly", "pk_pct", "pk_pct_weekly"];
+                    totalAvgs = { ga_gm: 0, soga_gm: 0, ga_gm_weekly: 0, soga_gm_weekly: 0, pk_pct: 0, pk_pct_weekly: 0, count: 0 };
+                    // --- [END] MODIFICATION ---
                 }
 
                 let tableHtml = `<table class="min-w-full divide-y divide-gray-700">
@@ -669,12 +671,23 @@
                             <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${game.opponent_tricode}</td>
                         `;
                         statKeys.forEach(key => {
+                            // --- [START] MODIFICATION ---
                             const isWhole = key.includes('sog');
+                            const isPct = key.includes('pk_');
                             const val = parseFloat(game[key]);
+
                             if (!isNaN(val)) {
                                 totalAvgs[key] += val;
                             }
-                            tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${formatNumber(game[key], isWhole ? 0 : 2)}</td>`;
+
+                            let formattedVal = 'N/A';
+                            if (isPct) {
+                                formattedVal = formatPercentage(game[key]);
+                            } else {
+                                formattedVal = formatNumber(game[key], isWhole ? 0 : 2);
+                            }
+                            tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${formattedVal}</td>`;
+                            // --- [END] MODIFICATION ---
                         });
                         tableHtml += `</tr>`;
                     });
@@ -685,9 +698,19 @@
                         <td class="px-2 py-1 text-sm text-white" colspan="2">Average</td>
                     `;
                     statKeys.forEach(key => {
+                        // --- [START] MODIFICATION ---
                         const isWhole = key.includes('sog');
+                        const isPct = key.includes('pk_');
                         const avgVal = totalAvgs[key] / numGames;
-                        tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-white">${formatNumber(avgVal, isWhole ? 0 : 2)}</td>`;
+
+                        let formattedAvg = 'N/A';
+                        if (isPct) {
+                            formattedAvg = formatPercentage(avgVal);
+                        } else {
+                            formattedAvg = formatNumber(avgVal, isWhole ? 0 : 2);
+                        }
+                        tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-white">${formattedAvg}</td>`;
+                        // --- [END] MODIFICATION ---
                     });
                     tableHtml += `</tr>`;
                 }
