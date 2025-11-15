@@ -886,7 +886,7 @@
                 return; // Stop processing
             }
 
-            // --- [START] NEW: Opponent Stats Modal ---
+            // --- Opponent Stats Modal ---
             const oppCell = e.target.closest('.opponent-stats-cell');
             if (oppCell) {
                 const data = oppCell.dataset;
@@ -896,15 +896,18 @@
                 document.getElementById('opponent-modal-title').textContent = `${data.playerName} - Opponent Stats`;
 
                 let headers, statKeys, totalAvgs;
+
+                // --- [START] MODIFICATION ---
                 if (isGoalie) {
-                    headers = ["Date", "Opp", "GF/G (Szn)", "SOG/G (Szn)", "GF/G (Last Wk)", "SOG/G (Last Wk)"];
-                    statKeys = ["gf_gm", "sogf_gm", "gf_gm_weekly", "sogf_gm_weekly"];
+                    headers = ["Date", "Opp", "GF/G (Szn)", "GF/G (Last Wk)", "SOG/G (Szn)", "SOG/G (Last Wk)"];
+                    statKeys = ["gf_gm", "gf_gm_weekly", "sogf_gm", "sogf_gm_weekly"];
                     totalAvgs = { gf_gm: 0, sogf_gm: 0, gf_gm_weekly: 0, sogf_gm_weekly: 0, count: 0 };
                 } else {
-                    headers = ["Date", "Opp", "GA/G (Szn)", "SOGA/G (Szn)", "GA/G (Last Wk)", "SOGA/G (Last Wk)"];
-                    statKeys = ["ga_gm", "soga_gm", "ga_gm_weekly", "soga_gm_weekly"];
+                    headers = ["Date", "Opp", "GA/G (Szn)", "GA/G (Last Wk)", "SOGA/G (Szn)", "SOGA/G (Last Wk)"];
+                    statKeys = ["ga_gm", "ga_gm_weekly", "soga_gm", "soga_gm_weekly"];
                     totalAvgs = { ga_gm: 0, soga_gm: 0, ga_gm_weekly: 0, soga_gm_weekly: 0, count: 0 };
                 }
+                // --- [END] MODIFICATION ---
 
                 let tableHtml = `<table class="min-w-full divide-y divide-gray-700">
                     <thead class="bg-gray-700/50">
@@ -923,12 +926,12 @@
                             <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${game.game_date}</td>
                             <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${game.opponent_tricode}</td>
                         `;
+                        // This loop iterates over the re-ordered statKeys
                         statKeys.forEach(key => {
                             const isWhole = key.includes('sog');
                             const val = parseFloat(game[key]);
                             if (!isNaN(val)) {
                                 totalAvgs[key] += val;
-                                if (key.includes('gm')) totalAvgs.count += 1; // Only count per-game stats for avg
                             }
                             tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${formatNumber(game[key], isWhole ? 0 : 2)}</td>`;
                         });
@@ -940,6 +943,7 @@
                     tableHtml += `<tr class="bg-gray-700 font-bold">
                         <td class="px-2 py-1 text-sm text-white" colspan="2">Average</td>
                     `;
+                    // This loop iterates over the re-ordered statKeys
                     statKeys.forEach(key => {
                         const isWhole = key.includes('sog');
                         const avgVal = totalAvgs[key] / numGames;
@@ -952,7 +956,6 @@
                 document.getElementById('opponent-modal-content').innerHTML = tableHtml;
                 document.getElementById('opponent-stats-modal').classList.remove('hidden');
             }
-            // --- [END] NEW ---
         };
 
         // Add the single handler to all four containers

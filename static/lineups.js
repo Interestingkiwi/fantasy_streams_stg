@@ -18,13 +18,10 @@
     let allScoringCategories = []; // Store all categories
     let checkedCategories = []; // Store currently checked categories
     let simulatedMoves = [];
-
-    // --- [START] NEW: Add state for split categories ---
     let skaterCategories = [];
     let goalieCategories = [];
-    // --- [END] NEW ---
 
-    // --- [START] NEW HELPER FUNCTIONS (from free-agents.js) ---
+    // --- [START] Helper Functions ---
     function formatPercentage(decimal) {
         if (decimal === null || decimal === undefined) return 'N/A';
         try {
@@ -52,62 +49,76 @@
     function formatNullable(value) {
         return value ?? 'N/A';
     }
-    // --- [END] NEW HELPER FUNCTIONS ---
+
+    // NEW Helper for opponent modal
+    function formatNumber(value, decimals, defaultVal = 'N/A') {
+        if (value === null || value === undefined) return defaultVal;
+        try {
+            const num = parseFloat(value);
+            if (isNaN(num)) return defaultVal;
+            return num.toFixed(decimals);
+        } catch (e) {
+            return defaultVal;
+        }
+    }
+    // --- [END] Helper Functions ---
 
 
-    /**
-     * Calculates a color for a heat map based on a player's rank.
-     * Lower ranks (closer to 1) are green, higher ranks (closer to 20) are red.
-     * @param {number} rank The player's rank in a category.
-     * @returns {string} An HSL color string or an empty string if rank is invalid.
-     */
     function getHeatmapColor(rank) {
         if (rank === null || rank === undefined || rank === '-') {
             return ''; // No color for empty ranks
         }
-
         const minRank = 1;
         const maxRank = 20;
-
-        // Clamp the rank to be within our min/max range for color calculation
         const clampedRank = Math.max(minRank, Math.min(rank, maxRank));
-
-        // Calculate the percentage of where the rank falls between min and max.
-        // A rank of 1 will be 0%, a rank of 20 will be 100%.
         const percentage = (clampedRank - minRank) / (maxRank - minRank);
-
-        // We want green (hue 120) at 0% and red (hue 0) at 100%.
-        // So, we calculate the hue by scaling (1 - percentage) over the 120-degree hue range.
         const hue = (1 - percentage) * 120;
-
-        // Return a very pastel HSL color. Low saturation and high lightness create a soft effect.
         return `hsl(${hue}, 65%, 75%)`;
     }
 
     async function init() {
-        // --- [START] NEW MODAL HTML (from free-agents.js) ---
-        const modalHTML = `
+        // --- [START] NEW: Add BOTH modals ---
+        const ppModalHTML = `
         <div id="pp-stats-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" style="backdrop-filter: blur(2px);">
             <div class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-lg relative border border-gray-700">
                 <button id="pp-modal-close" class="absolute top-3 right-3 text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
                 <h3 id="pp-modal-title" class="text-xl font-bold text-white mb-4">Player PP Stats</h3>
-                <div id="pp-modal-content" class="text-gray-300">
-                    </div>
+                <div id="pp-modal-content" class="text-gray-300"></div>
             </div>
         </div>
         `;
-        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        const opponentModalHTML = `
+        <div id="opponent-stats-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" style="backdrop-filter: blur(2px);">
+            <div class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-2xl relative border border-gray-700">
+                <button id="opponent-modal-close" class="absolute top-3 right-3 text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
+                <h3 id="opponent-modal-title" class="text-xl font-bold text-white mb-4">Opponent Stats</h3>
+                <div id="opponent-modal-content" class="text-gray-300 overflow-x-auto"></div>
+            </div>
+        </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', ppModalHTML);
+        document.body.insertAdjacentHTML('beforeend', opponentModalHTML);
 
+        // Add listeners for PP modal
         document.getElementById('pp-modal-close').addEventListener('click', () => {
             document.getElementById('pp-stats-modal').classList.add('hidden');
         });
-
         document.getElementById('pp-stats-modal').addEventListener('click', (e) => {
             if (e.target.id === 'pp-stats-modal') {
                 document.getElementById('pp-stats-modal').classList.add('hidden');
             }
         });
-        // --- [END] NEW MODAL HTML ---
+
+        // Add listeners for Opponent modal
+        document.getElementById('opponent-modal-close').addEventListener('click', () => {
+            document.getElementById('opponent-stats-modal').classList.add('hidden');
+        });
+        document.getElementById('opponent-stats-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'opponent-stats-modal') {
+                document.getElementById('opponent-stats-modal').classList.add('hidden');
+            }
+        });
+        // --- [END] NEW MODALS ---
 
         try {
             const response = await fetch('/api/lineup_page_data');
@@ -153,22 +164,19 @@
         ).join('');
         yourTeamSelect.innerHTML = teamOptions;
 
-        // --- EDITED SECTION ---
-        // Restore team selection from localStorage
+        // Restore team selection
         const savedTeam = localStorage.getItem('selectedTeam');
         if (savedTeam) {
             yourTeamSelect.value = savedTeam;
         }
 
-        // Check if a session has started to handle the week selection
+        // Restore week selection
         if (!sessionStorage.getItem('fantasySessionStarted')) {
-            // This is a new session. Default to the current week.
             const currentWeek = pageData.current_week;
             weekSelect.value = currentWeek;
             localStorage.setItem('selectedWeek', currentWeek);
             sessionStorage.setItem('fantasySessionStarted', 'true');
         } else {
-            // A session is active. Restore from localStorage.
             const savedWeek = localStorage.getItem('selectedWeek');
             if (savedWeek) {
                 weekSelect.value = savedWeek;
@@ -176,7 +184,6 @@
                 weekSelect.value = pageData.current_week;
             }
         }
-        // --- END EDITED SECTION ---
     }
 
     async function fetchAndRenderTable() {
@@ -192,17 +199,17 @@
         optimalLineupContainer.innerHTML = '<p class="text-gray-400">Calculating optimal lineups...</p>';
         unusedRosterSpotsContainer.innerHTML = '';
 
-            // Read checked categories from the UI, if it's rendered
-            const categoryCheckboxes = document.querySelectorAll('#category-checkboxes-container input[name="category"]:checked');
-            let categoriesToSend = null;
+        const categoryCheckboxes = document.querySelectorAll('#category-checkboxes-container input[name="category"]:checked');
+        let categoriesToSend = null;
 
-            if (categoryCheckboxes.length > 0) {
-                categoriesToSend = Array.from(categoryCheckboxes).map(cb => cb.value);
-            } else if (checkedCategories.length > 0) {
-                categoriesToSend = checkedCategories;
-            }
+        if (categoryCheckboxes.length > 0) {
+            categoriesToSend = Array.from(categoryCheckboxes).map(cb => cb.value);
+        } else if (checkedCategories.length > 0) {
+            categoriesToSend = checkedCategories;
+        }
+
         const cachedSim = localStorage.getItem(SIMULATION_KEY);
-        simulatedMoves = cachedSim ? JSON.parse(cachedSim) : []; // MODIFIED: Assign to global
+        simulatedMoves = cachedSim ? JSON.parse(cachedSim) : [];
         try {
             const response = await fetch('/api/roster_data', {
                 method: 'POST',
@@ -218,7 +225,6 @@
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to fetch roster.');
 
-            // --- [START] MODIFICATION: Store all category lists ---
             if (allScoringCategories.length === 0) {
                 allScoringCategories = data.scoring_categories; // For checkboxes
                 if (localStorage.getItem(CATEGORY_PREF_KEY) === null) {
@@ -226,16 +232,13 @@
                 }
                 renderCategoryCheckboxes();
             }
-            // Store split categories
             skaterCategories = data.skater_categories;
             goalieCategories = data.goalie_categories;
-            // --- [END] MODIFICATION ---
 
-
-            renderTable(data.players, data.daily_optimal_lineups); // Signature changed
+            renderTable(data.players, data.daily_optimal_lineups);
             renderOptimalLineups(data.daily_optimal_lineups, data.lineup_settings);
             renderUnusedRosterSpotsTable(data.unused_roster_spots);
-            renderSimulatedMovesLog(); // NEW CALL
+            renderSimulatedMovesLog();
 
 
         } catch(error) {
@@ -245,11 +248,10 @@
         }
     }
 
-    // --- [START] REFACTORED/NEW renderTable function ---
     function renderTable(roster, dailyLineups) {
         const positionOrder = ['C', 'LW', 'RW', 'D', 'G', 'IR', 'IR+'];
 
-        // 1. Create playerStartsByDay map (no change)
+        // 1. Create playerStartsByDay map
         const playerStartsByDay = {};
         const dayAbbrMap = {
             'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed',
@@ -258,8 +260,8 @@
 
         for (const dayString in dailyLineups) {
             const lineup = dailyLineups[dayString];
-            const dayName = dayString.split(',')[0]; // e.g., "Monday"
-            const dayAbbr = dayAbbrMap[dayName];    // e.g., "Mon"
+            const dayName = dayString.split(',')[0];
+            const dayAbbr = dayAbbrMap[dayName];
 
             if (dayAbbr) {
                 for (const position in lineup) {
@@ -277,14 +279,13 @@
         const skaters = roster.filter(p => !(p.eligible_positions || p.positions || '').includes('G'));
         const goalies = roster.filter(p => (p.eligible_positions || p.positions || '').includes('G'));
 
-        // 3. Sort players (using existing logic)
+        // 3. Sort players
         const sortFn = (a, b) => {
             const posStrA = (a.eligible_positions || a.positions || '').toString();
             const posStrB = (b.eligible_positions || b.positions || '').toString();
             const posA = posStrA.split(',').map(p => p.trim());
             const posB = posStrB.split(',').map(p => p.trim());
 
-            // Find the "best" (lowest index) non-IR position
             const getBestPosIndex = (posArr) => {
                 let minIndex = Infinity;
                 let isIR = false;
@@ -297,9 +298,7 @@
                         minIndex = idx;
                     }
                 });
-                // If a player is IR, push them to the bottom
                 if (isIR) return 100;
-                // If only pos is IR (or unlisted), return high number
                 if (minIndex === Infinity) return 99;
                 return minIndex;
             };
@@ -316,10 +315,7 @@
         tableContainer.innerHTML = buildPlayerTable('Skaters', skaters, skaterCategories, playerStartsByDay) +
                                  buildPlayerTable('Goalies', goalies, goalieCategories, playerStartsByDay);
     }
-    // --- [END] REFACTORED renderTable function ---
 
-
-    // --- [START] NEW HELPER FUNCTION to build a single table ---
     function buildPlayerTable(title, players, categories, playerStartsByDay) {
         let tableHtml = `
             <div class="bg-gray-900 rounded-lg shadow ${title === 'Goalies' ? 'mt-6' : ''}">
@@ -332,6 +328,7 @@
                                 <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Team</th>
                                 <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Positions</th>
                                 <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">This Week</th>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Opponents</th>
                                 <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider"># Games</th>
                                 <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Starts</th>
                                 <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Next Week</th>
@@ -346,7 +343,7 @@
         tableHtml += `</tr></thead><tbody class="bg-gray-800 divide-y divide-gray-700">`;
 
         if (players.length === 0) {
-            const colspan = 8 + (categories || []).length;
+            const colspan = 9 + (categories || []).length; // Increased colspan
             tableHtml += `<tr><td colspan="${colspan}" class="text-center py-4 text-gray-400">No ${title.toLowerCase()} found on roster.</td></tr>`;
         }
 
@@ -358,12 +355,18 @@
                 return day;
             }).join(', ');
 
-            const statusHtml = (player.status && player.status !== 'FA') // Don't show FA status on roster
+            const statusHtml = (player.status && player.status !== 'FA')
                 ? ` <a href="https://sports.yahoo.com/nhl/players/${player.player_id}/news/"
                        target="_blank" rel="noopener noreferrer"
                        class="text-red-400 ml-1 hover:text-red-300 hover:underline"
                        title="View player news on Yahoo (opens new tab)">(${player.status})</a>`
                 : '';
+
+            // --- [START] NEW: Opponent cell data ---
+            const opponentsList = (player.opponents_list || []).join(', ');
+            const opponentStatsJson = JSON.stringify(player.opponent_stats_this_week || []);
+            const isGoalie = (player.eligible_positions || player.positions || '').includes('G');
+            // --- [END] NEW ---
 
             tableHtml += `
                 <tr class="hover:bg-gray-700/50">
@@ -371,6 +374,12 @@
                     <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.team || player.player_team}</td>
                     <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.eligible_positions || player.positions}</td>
                     <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${gamesThisWeekHtml}</td>
+                    <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300 cursor-pointer hover:bg-gray-700 opponent-stats-cell"
+                        data-player-name="${player.player_name}"
+                        data-is-goalie="${isGoalie}"
+                        data-opponent-stats='${opponentStatsJson}'>
+                        ${opponentsList}
+                    </td>
                     <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${(player.games_this_week || []).length}</td>
                     <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.starts_this_week}</td>
                     <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${(player.games_next_week || []).join(', ')}</td>
@@ -411,20 +420,15 @@
         let finalHtml = '<div class="flex flex-wrap gap-4 justify-center">'; // Flex container
         const positionOrder = ['C', 'LW', 'RW', 'D', 'G'];
 
-        // Get the day keys and sort them chronologically
         const sortedDays = Object.keys(dailyLineups).sort((a, b) => {
-            // Append a year to make parsing reliable, since the date strings don't have one
             const currentYear = new Date().getFullYear();
             const dateA = new Date(`${a}, ${currentYear}`);
             const dateB = new Date(`${b}, ${currentYear}`);
             return dateA - dateB;
         });
 
-        // Iterate over the sorted array of days
         sortedDays.forEach(day => {
             const lineup = dailyLineups[day];
-
-            // Each table container will be a flex item
             let tableHtml = `
                 <div class="bg-gray-900 rounded-lg shadow flex-grow" style="min-width: 300px;">
                     <h2 class="text-xl font-bold text-white p-3 bg-gray-800 rounded-t-lg">${day}</h2>
@@ -437,11 +441,9 @@
                         </thead>
                         <tbody class="bg-gray-800 divide-y divide-gray-700">
             `;
-
             positionOrder.forEach(pos => {
                 const numSlots = lineupSettings[pos] || 0;
                 const playersInPos = lineup[pos] || [];
-
                 for (let i = 0; i < numSlots; i++) {
                     const player = playersInPos[i];
                     if (player) {
@@ -452,7 +454,6 @@
                             </tr>
                         `;
                     } else {
-                        // Render an empty slot
                         tableHtml += `
                             <tr class="hover:bg-gray-700/50">
                                 <td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${pos}</td>
@@ -462,19 +463,14 @@
                     }
                 }
             });
-
-            tableHtml += `
-                        </tbody>
-                    </table>
-                </div>
-            `;
+            tableHtml += `</tbody></table></div>`;
             finalHtml += tableHtml;
         });
 
         if (sortedDays.length === 0) {
             optimalLineupContainer.innerHTML = '<p class="text-gray-400">No games scheduled for active players this week.</p>';
         } else {
-            finalHtml += '</div>'; // Close the flex container
+            finalHtml += '</div>';
             optimalLineupContainer.innerHTML = finalHtml;
         }
     }
@@ -484,13 +480,9 @@
             unusedRosterSpotsContainer.innerHTML = '';
             return;
         }
-
         const positionOrder = ['C', 'LW', 'RW', 'D', 'G'];
         const dayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-        const sortedDays = Object.keys(unusedSpotsData).sort((a, b) => {
-            return dayOrder.indexOf(a) - dayOrder.indexOf(b);
-        });
+        const sortedDays = Object.keys(unusedSpotsData).sort((a, b) => dayOrder.indexOf(a) - dayOrder.indexOf(b));
 
         let tableHtml = `
             <div class="bg-gray-900 rounded-lg shadow mt-6">
@@ -505,49 +497,28 @@
                         </thead>
                         <tbody class="bg-gray-800 divide-y divide-gray-700">
         `;
-
         sortedDays.forEach(day => {
             tableHtml += `<tr class="hover:bg-gray-700/50">
                 <td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${day}</td>`;
             positionOrder.forEach(pos => {
                 const value = unusedSpotsData[day][pos];
                 const stringValue = String(value);
-
-                const highlightClass = (stringValue !== '0')
-                    ? 'bg-green-200 text-gray-900'
-                    : 'text-gray-300';
-
+                const highlightClass = (stringValue !== '0') ? 'bg-green-200 text-gray-900' : 'text-gray-300';
                 tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-center ${highlightClass}">${value}</td>`;
             });
             tableHtml += `</tr>`;
         });
-
-        tableHtml += `
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        `;
-
+        tableHtml += `</tbody></table></div></div>`;
         unusedRosterSpotsContainer.innerHTML = tableHtml;
     }
 
-    // --- NEW FUNCTION ---
     function renderSimulatedMovesLog() {
-        if (!simLogContainer) return; // Don't error if element doesn't exist
-
+        if (!simLogContainer) return;
         if (simulatedMoves.length === 0) {
-            simLogContainer.innerHTML = ''; // Clear the container if no moves
+            simLogContainer.innerHTML = '';
             return;
         }
-
-        // Sort moves by date to display them in chronological order
-        const sortedMoves = [...simulatedMoves].sort((a, b) => {
-            if (a.date < b.date) return -1;
-            if (a.date > b.date) return 1;
-            return 0;
-        });
-
+        const sortedMoves = [...simulatedMoves].sort((a, b) => (a.date < b.date) ? -1 : 1);
         let logHtml = `
             <p class="text-sm text-gray-400 italic mb-2">Lineups assume the below planned transactions are made.</p>
             <h4 class="text-lg font-semibold text-white mt-6 mb-2">Simulated Moves Log</h4>
@@ -562,7 +533,6 @@
                     </thead>
                     <tbody class="bg-gray-800 divide-y divide-gray-700">
         `;
-
         sortedMoves.forEach(move => {
             logHtml += `
                 <tr class="hover:bg-gray-700/50">
@@ -572,16 +542,9 @@
                 </tr>
             `;
         });
-
-        logHtml += `
-                    </tbody>
-                </table>
-            </div>
-        `;
+        logHtml += `</tbody></table></div>`;
         simLogContainer.innerHTML = logHtml;
     }
-    // --- END NEW FUNCTION ---
-
 
     function renderCategoryCheckboxes() {
         let checkboxHtml = `
@@ -605,7 +568,6 @@
         });
         checkboxHtml += '</div>';
 
-        // Add the Update button
         checkboxHtml += `
             <button id="update-lineups-btn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded transition-colors duration-150">
                 Update Lineups
@@ -613,7 +575,6 @@
         `;
         checkboxesContainer.innerHTML = checkboxHtml;
 
-        // Add event listeners for new buttons
         document.getElementById('check-all-btn').addEventListener('click', () => {
             document.querySelectorAll('#category-checkboxes-container input[name="category"]').forEach(cb => cb.checked = true);
         });
@@ -622,36 +583,27 @@
             document.querySelectorAll('#category-checkboxes-container input[name="category"]').forEach(cb => cb.checked = false);
         });
 
-        // The "Update Lineups" button will trigger the fetch
         document.getElementById('update-lineups-btn').addEventListener('click', () => {
             const currentChecked = Array.from(
                 document.querySelectorAll('#category-checkboxes-container input[name="category"]:checked')
             ).map(cb => cb.value);
-
             localStorage.setItem(CATEGORY_PREF_KEY, JSON.stringify(currentChecked));
-
             fetchAndRenderTable();
         });
     }
-
-
-
 
     function setupEventListeners() {
         weekSelect.addEventListener('change', fetchAndRenderTable);
         yourTeamSelect.addEventListener('change', fetchAndRenderTable);
 
-        // --- [START] NEW MODAL CLICK LISTENER (Event Delegation) ---
+        // --- [START] MODIFIED: Combined Modal Click Listener ---
         tableContainer.addEventListener('click', (e) => {
-            const cell = e.target.closest('.pp-util-cell');
-            if (cell) {
-                const data = cell.dataset;
-                const modalTitle = document.getElementById('pp-modal-title');
-                const modalContent = document.getElementById('pp-modal-content');
-
-                modalTitle.textContent = `${data.playerName} - PP Stats`;
-
-                modalContent.innerHTML = `
+            // Check for PP Util Cell
+            const ppCell = e.target.closest('.pp-util-cell');
+            if (ppCell) {
+                const data = ppCell.dataset;
+                document.getElementById('pp-modal-title').textContent = `${data.playerName} - PP Stats`;
+                document.getElementById('pp-modal-content').innerHTML = `
                 <div class="space-y-4">
                     <div>
                         <h4 class="text-md font-semibold text-white mb-2">Last Game</h4>
@@ -674,11 +626,78 @@
                     </div>
                 </div>
                 `;
-
                 document.getElementById('pp-stats-modal').classList.remove('hidden');
+                return; // Stop processing
+            }
+
+            // Check for Opponent Stats Cell
+            const oppCell = e.target.closest('.opponent-stats-cell');
+            if (oppCell) {
+                const data = oppCell.dataset;
+                const isGoalie = data.isGoalie === 'true';
+                const stats = JSON.parse(data.opponentStats);
+
+                document.getElementById('opponent-modal-title').textContent = `${data.playerName} - Opponent Stats`;
+
+                let headers, statKeys, totalAvgs;
+
+                if (isGoalie) {
+                    headers = ["Date", "Opp", "GF/G (Szn)", "GF/G (Last Wk)", "SOG/G (Szn)", "SOG/G (Last Wk)"];
+                    statKeys = ["gf_gm", "gf_gm_weekly", "sogf_gm", "sogf_gm_weekly"];
+                    totalAvgs = { gf_gm: 0, sogf_gm: 0, gf_gm_weekly: 0, sogf_gm_weekly: 0, count: 0 };
+                } else {
+                    headers = ["Date", "Opp", "GA/G (Szn)", "GA/G (Last Wk)", "SOGA/G (Szn)", "SOGA/G (Last Wk)"];
+                    statKeys = ["ga_gm", "ga_gm_weekly", "soga_gm", "soga_gm_weekly"];
+                    totalAvgs = { ga_gm: 0, soga_gm: 0, ga_gm_weekly: 0, soga_gm_weekly: 0, count: 0 };
+                }
+
+                let tableHtml = `<table class="min-w-full divide-y divide-gray-700">
+                    <thead class="bg-gray-700/50">
+                        <tr>
+                            ${headers.map(h => `<th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">${h}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody class="bg-gray-800 divide-y divide-gray-700">
+                `;
+
+                if (stats.length === 0) {
+                    tableHtml += `<tr><td colspan="${headers.length}" class="text-center text-gray-400 py-3">No opponent data available for this week.</td></tr>`;
+                } else {
+                    stats.forEach(game => {
+                        tableHtml += `<tr class="hover:bg-gray-700/50">
+                            <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${game.game_date}</td>
+                            <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${game.opponent_tricode}</td>
+                        `;
+                        statKeys.forEach(key => {
+                            const isWhole = key.includes('sog');
+                            const val = parseFloat(game[key]);
+                            if (!isNaN(val)) {
+                                totalAvgs[key] += val;
+                            }
+                            tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${formatNumber(game[key], isWhole ? 0 : 2)}</td>`;
+                        });
+                        tableHtml += `</tr>`;
+                    });
+
+                    // Add Average Row
+                    const numGames = stats.length || 1;
+                    tableHtml += `<tr class="bg-gray-700 font-bold">
+                        <td class="px-2 py-1 text-sm text-white" colspan="2">Average</td>
+                    `;
+                    statKeys.forEach(key => {
+                        const isWhole = key.includes('sog');
+                        const avgVal = totalAvgs[key] / numGames;
+                        tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-white">${formatNumber(avgVal, isWhole ? 0 : 2)}</td>`;
+                    });
+                    tableHtml += `</tr>`;
+                }
+
+                tableHtml += `</tbody></table>`;
+                document.getElementById('opponent-modal-content').innerHTML = tableHtml;
+                document.getElementById('opponent-stats-modal').classList.remove('hidden');
             }
         });
-        // --- [END] NEW MODAL CLICK LISTENER ---
+        // --- [END] MODIFIED ---
     }
 
     init();
