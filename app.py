@@ -2597,9 +2597,20 @@ def schedules_playoff_schedules():
 def get_roster_data():
     league_id = session.get('league_id')
     data = request.get_json()
-    week_num = data.get('week')
+
+    # --- [START] FIX: Convert week_num to int ---
+    week_num_str = data.get('week')
     team_name = data.get('team_name')
     simulated_moves = data.get('simulated_moves', [])
+
+    if not week_num_str: # Check if it's missing
+        return jsonify({'error': 'Week number is required.'}), 400
+
+    try:
+        week_num = int(week_num_str) # Convert to int
+    except ValueError:
+        return jsonify({'error': 'Invalid week number format.'}), 400
+    # --- [END] FIX ---
 
     conn, error_msg = get_db_connection_for_league(league_id)
     if not conn:
@@ -2629,7 +2640,7 @@ def get_roster_data():
         team_id = team_id_row['team_id']
 
         # Get week dates
-        cursor.execute("SELECT start_date, end_date FROM weeks WHERE week_num = ?", (week_num,))
+        cursor.execute("SELECT start_date, end_date FROM weeks WHERE week_num = ?", (week_num,)) # week_num is now an int
         week_dates = cursor.fetchone()
         if not week_dates:
             return jsonify({'error': f'Week not found: {week_num}'}), 404
@@ -2654,6 +2665,7 @@ def get_roster_data():
         # --- [END] NEW ---
 
         # --- MODIFIED: Pass new data to helper ---
+        # week_num is now correctly passed as an integer
         active_players = _get_ranked_roster_for_week(cursor, team_id, week_num, schedule_data, team_stats_map)
 
         # Get the full player list for display, including IR players
@@ -2704,22 +2716,16 @@ def get_roster_data():
                 player['total_rank'] = source.get('total_rank')
                 player['game_dates_this_week'] = source.get('game_dates_this_week', [])
                 player['games_this_week'] = source.get('games_this_week', [])
-
-                # --- [START] NEW: Copy opponent and next week data ---
                 player['games_next_week'] = source.get('games_next_week', [])
                 player['opponents_list'] = source.get('opponents_list', [])
                 player['opponent_stats_this_week'] = source.get('opponent_stats_this_week', [])
-                # --- [END] NEW ---
             else:
                 # This is either an IR player or a Simulated Player
                 if 'games_this_week' not in player: player['games_this_week'] = []
                 if 'game_dates_this_week' not in player: player['game_dates_this_week'] = []
-
-                # --- [START] NEW: Add empty lists ---
                 player['games_next_week'] = []
                 player['opponents_list'] = []
                 player['opponent_stats_this_week'] = []
-                # --- [END] NEW ---
 
 
             p_stats = player_stats.get(player.get('player_name_normalized'))
@@ -2741,10 +2747,6 @@ def get_roster_data():
             player['total_rank'] = round(new_total_rank, 2) if p_stats else None
             if player.get('player_id'):
                 player_custom_rank_map[int(player['player_id'])] = player['total_rank']
-
-            # --- [START] REMOVED redundant games_next_week logic ---
-            # (The DB query loop that was here is now gone)
-            # --- [END] REMOVED ---
 
         logging.info("Updating ranks for active_players list...")
         for player in active_players:
