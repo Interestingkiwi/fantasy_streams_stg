@@ -350,7 +350,7 @@ def get_optimal_lineup(players, lineup_settings):
     return lineup
 
 
-def _get_ranked_roster_for_week(cursor, team_id, week_num, full_schedule_map, team_stats_map):
+def _get_ranked_roster_for_week(cursor, team_id, week_num, schedule_data, team_stats_map):
     """
     Internal helper to fetch a team's full roster for a week and enrich it
     with game schedules and player performance ranks.
@@ -385,6 +385,7 @@ def _get_ranked_roster_for_week(cursor, team_id, week_num, full_schedule_map, te
     scoring_categories = [row['category'] for row in cursor.fetchall()]
     cat_rank_columns = [f"{cat}_cat_rank" for cat in scoring_categories]
 
+    # --- [START] THE REAL FIX (using playoff_schedules logic) ---
     for player in players:
         player['game_dates_this_week'] = []
         player['games_this_week'] = []
@@ -396,48 +397,54 @@ def _get_ranked_roster_for_week(cursor, team_id, week_num, full_schedule_map, te
         if not player_team:
             continue
 
-        cursor.execute("SELECT schedule_json FROM team_schedules WHERE team_tricode = ?", (player_team,))
-        schedule_row = cursor.fetchone()
+        # 1. Find This Week's Games & Opponents
+        games_this_week = []
+        if start_date and end_date:
+            games_this_week = [
+                g for g in schedule_data
+                if start_date <= datetime.strptime(g['game_date'], '%Y-%m-%d').date() <= end_date and
+                   (g['home_team'] == player_team or g['away_team'] == player_team)
+            ]
+        games_this_week.sort(key=lambda g: g['game_date'])
 
-        if schedule_row and schedule_row['schedule_json']:
-            schedule = json.loads(schedule_row['schedule_json'])
-            schedule.sort()
+        for game in games_this_week:
+            game_date = datetime.strptime(game['game_date'], '%Y-%m-%d').date()
+            player['game_dates_this_week'].append(game['game_date'])
+            player['games_this_week'].append(game_date.strftime('%a'))
 
-            for game_date_str in schedule:
-                game_date = datetime.strptime(game_date_str, '%Y-%m-%d').date()
+            opponent_tricode = game['away_team'] if game['home_team'] == player_team else game['home_team']
 
-                if start_date <= game_date <= end_date:
-                    player['game_dates_this_week'].append(game_date_str)
-                    player['games_this_week'].append(game_date.strftime('%a'))
+            if opponent_tricode:
+                player['opponents_list'].append(opponent_tricode)
+                opponent_stats = team_stats_map.get(opponent_tricode, {})
 
-                    game_info = full_schedule_map.get(game_date_str)
-                    opponent_tricode = None
-                    if game_info:
-                        opponent_tricode = game_info['away_team'] if game_info['home_team'] == player_team else game_info['home_team']
+                player['opponent_stats_this_week'].append({
+                    'game_date': game_date.strftime('%a, %b %d'),
+                    'opponent_tricode': opponent_tricode,
+                    'ga_gm': opponent_stats.get('ga_gm'),
+                    'soga_gm': opponent_stats.get('soga_gm'),
+                    'ga_gm_weekly': opponent_stats.get('ga_gm_weekly'),
+                    'soga_gm_weekly': opponent_stats.get('soga_gm_weekly'),
+                    'gf_gm': opponent_stats.get('gf_gm'),
+                    'sogf_gm': opponent_stats.get('sogf_gm'),
+                    'gf_gm_weekly': opponent_stats.get('gf_gm_weekly'),
+                    'sogf_gm_weekly': opponent_stats.get('sogf_gm_weekly'),
+                    'pk_pct': opponent_stats.get('pk_pct'),
+                    'pk_pct_weekly': opponent_stats.get('pk_pct_weekly')
+                })
 
-                    if opponent_tricode:
-                        player['opponents_list'].append(opponent_tricode)
-                        opponent_stats = team_stats_map.get(opponent_tricode, {})
-
-                        # --- [START] MODIFICATION ---
-                        player['opponent_stats_this_week'].append({
-                            'game_date': game_date.strftime('%a, %b %d'),
-                            'opponent_tricode': opponent_tricode,
-                            'ga_gm': opponent_stats.get('ga_gm'),
-                            'soga_gm': opponent_stats.get('soga_gm'),
-                            'ga_gm_weekly': opponent_stats.get('ga_gm_weekly'),
-                            'soga_gm_weekly': opponent_stats.get('soga_gm_weekly'),
-                            'gf_gm': opponent_stats.get('gf_gm'),
-                            'sogf_gm': opponent_stats.get('sogf_gm'),
-                            'gf_gm_weekly': opponent_stats.get('gf_gm_weekly'),
-                            'sogf_gm_weekly': opponent_stats.get('sogf_gm_weekly'),
-                            'pk_pct': opponent_stats.get('pk_pct'), # Added
-                            'pk_pct_weekly': opponent_stats.get('pk_pct_weekly') # Added
-                        })
-                        # --- [END] MODIFICATION ---
-
-                if start_date_next and end_date_next and start_date_next <= game_date <= end_date_next:
-                    player['games_next_week'].append(game_date.strftime('%a'))
+        # 2. Find Next Week's Games
+        if start_date_next and end_date_next:
+            games_next_week = [
+                g for g in schedule_data
+                if start_date_next <= datetime.strptime(g['game_date'], '%Y-%m-%d').date() <= end_date_next and
+                   (g['home_team'] == player_team or g['away_team'] == player_team)
+            ]
+            games_next_week.sort(key=lambda g: g['game_date'])
+            for game in games_next_week:
+                game_date = datetime.strptime(game['game_date'], '%Y-%m-%d').date()
+                player['games_next_week'].append(game_date.strftime('%a'))
+    # --- [END] THE REAL FIX ---
 
     active_players = [p for p in players if not any(pos.strip().startswith('IR') for pos in p['eligible_positions'].split(','))]
     normalized_names = [p['player_name_normalized'] for p in active_players]
@@ -521,7 +528,7 @@ def _calculate_unused_spots(days_in_week, active_players, lineup_settings, simul
 
     return unused_spots_data
 
-def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num, full_schedule_map, team_stats_map):
+def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num, schedule_data, team_stats_map):
     """
     Internal helper to fetch player details, ranks, and schedules for a list of player IDs.
     """
@@ -577,48 +584,56 @@ def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num, full_sch
         if not player_team:
             continue
 
-        cursor.execute("SELECT schedule_json FROM team_schedules WHERE team_tricode = ?", (player_team,))
-        schedule_row = cursor.fetchone()
+        # --- [START] THE REAL FIX (using playoff_schedules logic) ---
 
-        if schedule_row and schedule_row['schedule_json']:
-            schedule = json.loads(schedule_row['schedule_json'])
-            schedule.sort()
+        # 1. Find This Week's Games
+        games_this_week = []
+        if start_date and end_date:
+            games_this_week = [
+                g for g in schedule_data
+                if start_date <= datetime.strptime(g['game_date'], '%Y-%m-%d').date() <= end_date and
+                   (g['home_team'] == player_team or g['away_team'] == player_team)
+            ]
+        games_this_week.sort(key=lambda g: g['game_date'])
 
-            for game_date_str in schedule:
-                game_date = datetime.strptime(game_date_str, '%Y-%m-%d').date()
+        for game in games_this_week:
+            game_date = datetime.strptime(game['game_date'], '%Y-%m-%d').date()
+            player['games_this_week'].append(game_date.strftime('%a'))
+            player['game_dates_this_week_full'].append(game['game_date'])
 
-                if start_date and end_date and start_date <= game_date <= end_date:
-                    player['games_this_week'].append(game_date.strftime('%a'))
-                    player['game_dates_this_week_full'].append(game_date_str)
+            opponent_tricode = game['away_team'] if game['home_team'] == player_team else game['home_team']
 
-                    game_info = full_schedule_map.get(game_date_str)
-                    opponent_tricode = None
-                    if game_info:
-                        opponent_tricode = game_info['away_team'] if game_info['home_team'] == player_team else game_info['home_team']
+            if opponent_tricode:
+                player['opponents_list'].append(opponent_tricode)
+                opponent_stats = team_stats_map.get(opponent_tricode, {})
 
-                    if opponent_tricode:
-                        player['opponents_list'].append(opponent_tricode)
-                        opponent_stats = team_stats_map.get(opponent_tricode, {})
+                player['opponent_stats_this_week'].append({
+                    'game_date': game_date.strftime('%a, %b %d'),
+                    'opponent_tricode': opponent_tricode,
+                    'ga_gm': opponent_stats.get('ga_gm'),
+                    'soga_gm': opponent_stats.get('soga_gm'),
+                    'ga_gm_weekly': opponent_stats.get('ga_gm_weekly'),
+                    'soga_gm_weekly': opponent_stats.get('soga_gm_weekly'),
+                    'gf_gm': opponent_stats.get('gf_gm'),
+                    'sogf_gm': opponent_stats.get('sogf_gm'),
+                    'gf_gm_weekly': opponent_stats.get('gf_gm_weekly'),
+                    'sogf_gm_weekly': opponent_stats.get('sogf_gm_weekly'),
+                    'pk_pct': opponent_stats.get('pk_pct'),
+                    'pk_pct_weekly': opponent_stats.get('pk_pct_weekly')
+                })
 
-                        # --- [START] MODIFICATION ---
-                        player['opponent_stats_this_week'].append({
-                            'game_date': game_date.strftime('%a, %b %d'),
-                            'opponent_tricode': opponent_tricode,
-                            'ga_gm': opponent_stats.get('ga_gm'),
-                            'soga_gm': opponent_stats.get('soga_gm'),
-                            'ga_gm_weekly': opponent_stats.get('ga_gm_weekly'),
-                            'soga_gm_weekly': opponent_stats.get('soga_gm_weekly'),
-                            'gf_gm': opponent_stats.get('gf_gm'),
-                            'sogf_gm': opponent_stats.get('sogf_gm'),
-                            'gf_gm_weekly': opponent_stats.get('gf_gm_weekly'),
-                            'sogf_gm_weekly': opponent_stats.get('sogf_gm_weekly'),
-                            'pk_pct': opponent_stats.get('pk_pct'), # Added
-                            'pk_pct_weekly': opponent_stats.get('pk_pct_weekly') # Added
-                        })
-                        # --- [END] MODIFICATION ---
-
-                if start_date_next and end_date_next and start_date_next <= game_date <= end_date_next:
-                    player['games_next_week'].append(game_date.strftime('%a'))
+        # 2. Find Next Week's Games
+        if start_date_next and end_date_next:
+            games_next_week = [
+                g for g in schedule_data
+                if start_date_next <= datetime.strptime(g['game_date'], '%Y-%m-%d').date() <= end_date_next and
+                   (g['home_team'] == player_team or g['away_team'] == player_team)
+            ]
+            games_next_week.sort(key=lambda g: g['game_date'])
+            for game in games_next_week:
+                game_date = datetime.strptime(game['game_date'], '%Y-%m-%d').date()
+                player['games_next_week'].append(game_date.strftime('%a'))
+        # --- [END] THE REAL FIX ---
 
     return players
 
