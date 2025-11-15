@@ -2765,9 +2765,13 @@ def get_free_agent_data():
         cursor = conn.cursor()
         request_data = request.get_json(silent=True) or {}
 
-        # Get all scoring categories from the database
-        cursor.execute("SELECT category FROM scoring")
-        all_scoring_categories = [row['category'] for row in cursor.fetchall()]
+        # --- [START] MODIFICATION: Get Skater/Goalie categories ---
+        cursor.execute("SELECT category, scoring_group FROM scoring ORDER BY scoring_group DESC, stat_id")
+        all_categories_raw = cursor.fetchall()
+        skater_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'offense']
+        goalie_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'goaltending']
+        all_scoring_categories = skater_categories + goalie_categories # Full list for checkboxes
+        # --- [END] MODIFICATION ---
 
         # Determine which categories are checked. If none are sent, assume all are.
         checked_categories = request_data.get('categories')
@@ -2869,20 +2873,20 @@ def get_free_agent_data():
                     unused_roster_spots = _calculate_unused_spots(days_in_week, team_ranked_roster, lineup_settings, simulated_moves)
                     # --- [END] THE FIX ---
 
-        # Get all scoring categories for checkboxes
-        cursor.execute("SELECT category FROM scoring")
-        all_scoring_categories_for_checkboxes = [row['category'] for row in cursor.fetchall()]
-
+        # --- [START] MODIFICATION: Update return JSON ---
         return jsonify({
             'waiver_players': waiver_players,
             'free_agents': free_agents,
-            'scoring_categories': all_scoring_categories_for_checkboxes,
-            'ranked_categories': all_scoring_categories,
+            'scoring_categories': all_scoring_categories, # For checkboxes
+            'skater_categories': skater_categories,     # For skater table
+            'goalie_categories': goalie_categories,     # For goalie table
+            'ranked_categories': all_scoring_categories, # Backwards compatibility for now
             'checked_categories': checked_categories,
             'unused_roster_spots': unused_roster_spots,
             'team_roster': [dict(p) for p in team_ranked_roster],
             'week_dates': days_in_week_data
         })
+        # --- [END] MODIFICATION ---
 
     except Exception as e:
         logging.error(f"Error fetching free agent data: {e}", exc_info=True)
