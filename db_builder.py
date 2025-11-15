@@ -123,8 +123,8 @@ class DBFinalizer:
             cursor = self.con.cursor()
 
             # --- MODIFIED ---
-            self.logger.info("Importing static tables (off_days, schedule, team_schedules, team_standings)...")
-            tables_to_import = ['off_days', 'schedule', 'team_schedules', 'team_standings']
+            self.logger.info("Importing static tables (off_days, schedule, team_schedules, team_standings,team_stats_summary, team_stats_weekly)...")
+            tables_to_import = ['off_days', 'schedule', 'team_schedules', 'team_standings','team_stats_summary', 'team_stats_weekly']
             for table in tables_to_import:
                 # --- MODIFIED ---
                 self.logger.info(f"Importing table: {table}")

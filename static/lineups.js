@@ -10,14 +10,19 @@
     const weekSelect = document.getElementById('week-select');
     const checkboxesContainer = document.getElementById('category-checkboxes-container');
     const yourTeamSelect = document.getElementById('your-team-select');
-    const simLogContainer = document.getElementById('simulated-moves-log'); // NEW
+    const simLogContainer = document.getElementById('simulated-moves-log');
     const SIMULATION_KEY = 'simulationCache';
 
     let pageData = null; // To store weeks and teams
     const CATEGORY_PREF_KEY = 'lineupCategoryPreferences';
     let allScoringCategories = []; // Store all categories
     let checkedCategories = []; // Store currently checked categories
-    let simulatedMoves = []; // NEW
+    let simulatedMoves = [];
+
+    // --- [START] NEW: Add state for split categories ---
+    let skaterCategories = [];
+    let goalieCategories = [];
+    // --- [END] NEW ---
 
     // --- [START] NEW HELPER FUNCTIONS (from free-agents.js) ---
     function formatPercentage(decimal) {
@@ -213,16 +218,21 @@
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to fetch roster.');
 
+            // --- [START] MODIFICATION: Store all category lists ---
             if (allScoringCategories.length === 0) {
-                allScoringCategories = data.scoring_categories;
+                allScoringCategories = data.scoring_categories; // For checkboxes
                 if (localStorage.getItem(CATEGORY_PREF_KEY) === null) {
                     checkedCategories = data.checked_categories;
                 }
-                renderCategoryCheckboxes(); // New function
+                renderCategoryCheckboxes();
             }
+            // Store split categories
+            skaterCategories = data.skater_categories;
+            goalieCategories = data.goalie_categories;
+            // --- [END] MODIFICATION ---
 
 
-            renderTable(data.players, data.scoring_categories, data.daily_optimal_lineups);
+            renderTable(data.players, data.daily_optimal_lineups); // Signature changed
             renderOptimalLineups(data.daily_optimal_lineups, data.lineup_settings);
             renderUnusedRosterSpotsTable(data.unused_roster_spots);
             renderSimulatedMovesLog(); // NEW CALL
@@ -235,10 +245,11 @@
         }
     }
 
-    function renderTable(roster, scoringCategories, dailyLineups) {
+    // --- [START] REFACTORED/NEW renderTable function ---
+    function renderTable(roster, dailyLineups) {
         const positionOrder = ['C', 'LW', 'RW', 'D', 'G', 'IR', 'IR+'];
 
-        // Create a lookup map for which days each player starts
+        // 1. Create playerStartsByDay map (no change)
         const playerStartsByDay = {};
         const dayAbbrMap = {
             'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed',
@@ -262,66 +273,97 @@
             }
         }
 
-        roster.sort((a, b) => {
+        // 2. Filter players
+        const skaters = roster.filter(p => !(p.eligible_positions || p.positions || '').includes('G'));
+        const goalies = roster.filter(p => (p.eligible_positions || p.positions || '').includes('G'));
+
+        // 3. Sort players (using existing logic)
+        const sortFn = (a, b) => {
             const posStrA = (a.eligible_positions || a.positions || '').toString();
             const posStrB = (b.eligible_positions || b.positions || '').toString();
-
             const posA = posStrA.split(',').map(p => p.trim());
             const posB = posStrB.split(',').map(p => p.trim());
 
-            const maxIndexA = Math.max(...posA.map(p => positionOrder.indexOf(p)));
-            const maxIndexB = Math.max(...posB.map(p => positionOrder.indexOf(p)));
+            // Find the "best" (lowest index) non-IR position
+            const getBestPosIndex = (posArr) => {
+                let minIndex = Infinity;
+                let isIR = false;
+                posArr.forEach(p => {
+                    if (p.includes('IR')) {
+                        isIR = true;
+                    }
+                    const idx = positionOrder.indexOf(p);
+                    if (idx !== -1 && idx < minIndex) {
+                        minIndex = idx;
+                    }
+                });
+                // If a player is IR, push them to the bottom
+                if (isIR) return 100;
+                // If only pos is IR (or unlisted), return high number
+                if (minIndex === Infinity) return 99;
+                return minIndex;
+            };
 
-            return maxIndexA - maxIndexB;
-        });
+            const bestPosA = getBestPosIndex(posA);
+            const bestPosB = getBestPosIndex(posB);
 
+            return bestPosA - bestPosB;
+        };
+        skaters.sort(sortFn);
+        goalies.sort(sortFn);
+
+        // 4. Build tables
+        tableContainer.innerHTML = buildPlayerTable('Skaters', skaters, skaterCategories, playerStartsByDay) +
+                                 buildPlayerTable('Goalies', goalies, goalieCategories, playerStartsByDay);
+    }
+    // --- [END] REFACTORED renderTable function ---
+
+
+    // --- [START] NEW HELPER FUNCTION to build a single table ---
+    function buildPlayerTable(title, players, categories, playerStartsByDay) {
         let tableHtml = `
-            <div class="bg-gray-900 rounded-lg shadow">
-                <h2 class="text-xl font-bold text-white p-3 bg-gray-800 rounded-t-lg">Roster</h2>
-                <table class="min-w-full divide-y divide-gray-700">
-                    <thead class="bg-gray-700/50">
-                        <tr>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Player Name</th>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Team</th>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Positions</th>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">This Week</th>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider"># Games</th>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Starts</th>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Next Week</th>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">
-                                PP Utilization
-                                <span class="text-xs text-gray-400 font-light block">(Click cell)</span>
-                            </th>
-                            `;
-
-        (scoringCategories || []).forEach(cat => {
-            tableHtml += `<th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">${cat}</th>`;
-        });
-
-        tableHtml += `
-                        </tr>
-                    </thead>
-                    <tbody class="bg-gray-800 divide-y divide-gray-700">
+            <div class="bg-gray-900 rounded-lg shadow ${title === 'Goalies' ? 'mt-6' : ''}">
+                <h2 class="text-xl font-bold text-white p-3 bg-gray-800 rounded-t-lg">${title}</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-700">
+                        <thead class="bg-gray-700/50">
+                            <tr>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Player Name</th>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Team</th>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Positions</th>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">This Week</th>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider"># Games</th>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Starts</th>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Next Week</th>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">
+                                    PP Utilization
+                                    <span class="text-xs text-gray-400 font-light block">(Click cell)</span>
+                                </th>
         `;
+        (categories || []).forEach(cat => {
+            tableHtml += `<th scope="col" class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider">${cat}</th>`;
+        });
+        tableHtml += `</tr></thead><tbody class="bg-gray-800 divide-y divide-gray-700">`;
 
-        roster.forEach(player => {
-            // Create the highlighted games list based on optimal starts
-            const gamesThisWeekHtml = (player.games_this_week || []).map(day => { // Added || []
+        if (players.length === 0) {
+            const colspan = 8 + (categories || []).length;
+            tableHtml += `<tr><td colspan="${colspan}" class="text-center py-4 text-gray-400">No ${title.toLowerCase()} found on roster.</td></tr>`;
+        }
+
+        players.forEach(player => {
+            const gamesThisWeekHtml = (player.games_this_week || []).map(day => {
                 if (playerStartsByDay[player.player_name] && playerStartsByDay[player.player_name].has(day)) {
                     return `<strong class="text-yellow-300">${day}</strong>`;
                 }
                 return day;
             }).join(', ');
 
-            // --- [START] NEW: Add player status link ---
-            const statusHtml = player.status
+            const statusHtml = (player.status && player.status !== 'FA') // Don't show FA status on roster
                 ? ` <a href="https://sports.yahoo.com/nhl/players/${player.player_id}/news/"
-                       target="_blank"
-                       rel="noopener noreferrer"
+                       target="_blank" rel="noopener noreferrer"
                        class="text-red-400 ml-1 hover:text-red-300 hover:underline"
                        title="View player news on Yahoo (opens new tab)">(${player.status})</a>`
                 : '';
-            // --- [END] NEW ---
 
             tableHtml += `
                 <tr class="hover:bg-gray-700/50">
@@ -332,7 +374,6 @@
                     <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${(player.games_this_week || []).length}</td>
                     <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.starts_this_week}</td>
                     <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${(player.games_next_week || []).join(', ')}</td>
-
                     <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300 cursor-pointer hover:bg-gray-700 pp-util-cell"
                         data-player-name="${player.player_name}"
                         data-avg-pp-pct="${player.avg_ppTimeOnIcePctPerGame}"
@@ -347,33 +388,24 @@
                         data-lw-gp="${player.team_games_played}">
                         ${formatPercentage(player.avg_ppTimeOnIcePctPerGame)}
                     </td>
-                    `;
-            (scoringCategories || []).forEach(cat => {
+            `;
+            (categories || []).forEach(cat => {
                 const rank_key = cat + '_cat_rank';
                 let rank = '-';
-
                 if (player.hasOwnProperty(rank_key) && player[rank_key] !== null) {
                     rank = player[rank_key];
                 }
-
                 const color = getHeatmapColor(rank);
-                // For pastel colors, a darker text provides better contrast
                 tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-center font-semibold text-gray-600" style="background-color: ${color};">${rank}</td>`;
             });
-
-
-            tableHtml += `
-                </tr>
-            `;
+            tableHtml += `</tr>`;
         });
 
-        tableHtml += `
-                    </tbody>
-                </table>
-            </div>
-        `;
-        tableContainer.innerHTML = tableHtml;
+        tableHtml += `</tbody></table></div></div>`;
+        return tableHtml;
     }
+    // --- [END] NEW HELPER FUNCTION ---
+
 
     function renderOptimalLineups(dailyLineups, lineupSettings) {
         let finalHtml = '<div class="flex flex-wrap gap-4 justify-center">'; // Flex container
@@ -463,14 +495,15 @@
         let tableHtml = `
             <div class="bg-gray-900 rounded-lg shadow mt-6">
                 <h2 class="text-xl font-bold text-white p-3 bg-gray-800 rounded-t-lg">Unused Roster Spots</h2>
-                <table class="divide-y divide-gray-700">
-                    <thead class="bg-gray-700/50">
-                        <tr>
-                            <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Day</th>
-                            ${positionOrder.map(pos => `<th class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider">${pos}</th>`).join('')}
-                        </tr>
-                    </thead>
-                    <tbody class="bg-gray-800 divide-y divide-gray-700">
+                <div class="overflow-x-auto">
+                    <table class="divide-y divide-gray-700">
+                        <thead class="bg-gray-700/50">
+                            <tr>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Day</th>
+                                ${positionOrder.map(pos => `<th class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider">${pos}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody class="bg-gray-800 divide-y divide-gray-700">
         `;
 
         sortedDays.forEach(day => {
@@ -490,8 +523,9 @@
         });
 
         tableHtml += `
-                    </tbody>
-                </table>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         `;
 
@@ -607,7 +641,7 @@
         weekSelect.addEventListener('change', fetchAndRenderTable);
         yourTeamSelect.addEventListener('change', fetchAndRenderTable);
 
-        // --- [START] NEW MODAL CLICK LISTENER ---
+        // --- [START] NEW MODAL CLICK LISTENER (Event Delegation) ---
         tableContainer.addEventListener('click', (e) => {
             const cell = e.target.closest('.pp-util-cell');
             if (cell) {

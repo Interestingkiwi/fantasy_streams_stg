@@ -2514,8 +2514,13 @@ def get_roster_data():
     try:
         cursor = conn.cursor()
 
-        cursor.execute("SELECT category FROM scoring")
-        all_scoring_categories = [row['category'] for row in cursor.fetchall()]
+        # --- [START] MODIFICATION: Get Skater/Goalie categories ---
+        cursor.execute("SELECT category, scoring_group FROM scoring ORDER BY scoring_group DESC, stat_id")
+        all_categories_raw = cursor.fetchall()
+        skater_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'offense']
+        goalie_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'goaltending']
+        all_scoring_categories = skater_categories + goalie_categories # Full list for checkboxes and rank calcs
+        # --- [END] MODIFICATION ---
 
         checked_categories = data.get('categories')
         if checked_categories is None:
@@ -2553,7 +2558,7 @@ def get_roster_data():
 
         # Get the full player list for display, including IR players
         cursor.execute("""
-            SELECT p.player_id, p.player_name, p.player_team as team, rp.eligible_positions, p.player_name_normalized
+            SELECT p.player_id, p.player_name, p.player_team as team, rp.eligible_positions, p.player_name_normalized, p.status
             FROM rosters_tall r
             JOIN rostered_players rp ON r.player_id = rp.player_id
             JOIN players p ON rp.player_id = p.player_id
@@ -2572,11 +2577,9 @@ def get_roster_data():
 
 
         # Get scoring categories to fetch rank columns
-        cursor.execute("SELECT category FROM scoring")
-        scoring_categories = [row['category'] for row in cursor.fetchall()]
-        cat_rank_columns = [f"{cat}_cat_rank" for cat in scoring_categories]
+        cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
 
-        # --- [START] NEW: Define PP Stat columns ---
+        # --- [START] MODIFICATION: Define PP Stat columns ---
         pp_stat_columns = [
             'avg_ppTimeOnIcePctPerGame',
             'lg_ppTimeOnIce',
@@ -2588,7 +2591,7 @@ def get_roster_data():
             'total_ppGoals',
             'team_games_played'
         ]
-        # --- [END] NEW ---
+        # --- [END] MODIFICATION ---
 
         # Get player stats for all players to populate rank columns
         all_normalized_names = [p.get('player_name_normalized') for p in all_players]
@@ -2622,8 +2625,6 @@ def get_roster_data():
                 player['games_this_week'] = [datetime.strptime(d, '%Y-%m-%d').strftime('%a') for d in player['game_dates_this_week']]
             else:
                 # This is either an IR player or a Simulated Player
-                # If 'games_this_week' is NOT on the object, it's an IR player. Set to [].
-                # If 'games_this_week' IS on the object, it's a Simulated Player. Do nothing, leave its data intact.
                 if 'games_this_week' not in player:
                     player['games_this_week'] = []
                 if 'game_dates_this_week' not in player:
@@ -2690,6 +2691,7 @@ def get_roster_data():
                 added_player['total_rank'] = 60
         logging.info("Finished updating ranks for active_players.")
 
+
         # Get lineup settings
         cursor.execute("SELECT position, position_count FROM lineup_settings WHERE position NOT IN ('BN', 'IR', 'IR+')")
         lineup_settings = {row['position']: row['position_count'] for row in cursor.fetchall()}
@@ -2730,14 +2732,18 @@ def get_roster_data():
         # --- Calculate Unused Roster Spots ---
         unused_roster_spots = _calculate_unused_spots(days_in_week, active_players, lineup_settings, simulated_moves)
 
+        # --- [START] MODIFICATION: Update return JSON ---
         return jsonify({
             'players': all_players,
             'daily_optimal_lineups': daily_optimal_lineups,
-            'scoring_categories': all_scoring_categories,
+            'scoring_categories': all_scoring_categories, # For checkboxes
+            'skater_categories': skater_categories,     # For skater table
+            'goalie_categories': goalie_categories,     # For goalie table
             'lineup_settings': lineup_settings,
             'checked_categories': checked_categories,
             'unused_roster_spots': unused_roster_spots
         })
+        # --- [END] MODIFICATION ---
 
     except Exception as e:
         logging.error(f"Error fetching roster data: {e}", exc_info=True)
