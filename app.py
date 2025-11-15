@@ -479,7 +479,7 @@ def _calculate_unused_spots(days_in_week, active_players, lineup_settings, simul
 
     return unused_spots_data
 
-def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num):
+def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num, full_schedule_map, team_stats_map):
     """
     Internal helper to fetch player details, ranks, and schedules for a list of player IDs.
     """
@@ -503,10 +503,7 @@ def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num):
 
     placeholders = ','.join('?' for _ in player_ids)
 
-    # --- START MODIFICATION ---
-    # Construct the full list of columns to select
     base_columns = ['player_id', 'player_name', 'player_team', 'positions', 'status', 'player_name_normalized']
-    # Corrected spellings: avg_, ...Assists, team_...
     pp_stat_columns = [
         'avg_ppTimeOnIcePctPerGame',
         'lg_ppTimeOnIce',
@@ -518,13 +515,9 @@ def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num):
         'total_ppGoals',
         'team_games_played'
     ]
-    # We still query for 'avg_ppTimeOnIcePctPerGame' (for the cell) and 'lg_ppTimeOnIcePctPerGame' (for the modal)
-    # The original request was contradictory, but your new complaint clarifies the cell value
-    # so we will use avg_ppTimeOnIcePctPerGame for the cell.
     pp_stat_columns.append('avg_ppTimeOnIcePctPerGame')
 
     columns_to_select = base_columns + cat_rank_columns + pp_stat_columns
-    # --- END MODIFICATION ---
 
     query = f"""
         SELECT {', '.join(columns_to_select)}
@@ -544,7 +537,14 @@ def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num):
         player['games_this_week'] = []
         player['games_next_week'] = []
         player['game_dates_this_week_full'] = []
-        cursor.execute("SELECT schedule_json FROM team_schedules WHERE team_tricode = ?", (player.get('player_team'),))
+        # --- [START] NEW: Opponent data lists ---
+        player['opponents_list'] = []
+        player['opponent_stats_this_week'] = []
+        # --- [END] NEW ---
+
+        player_team = player.get('player_team') # Get the player's team tricode
+
+        cursor.execute("SELECT schedule_json FROM team_schedules WHERE team_tricode = ?", (player_team,))
         schedule_row = cursor.fetchone()
         if schedule_row and schedule_row['schedule_json']:
             schedule = json.loads(schedule_row['schedule_json'])
@@ -553,6 +553,34 @@ def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num):
                 if start_date and end_date and start_date <= game_date <= end_date:
                     player['games_this_week'].append(game_date.strftime('%a'))
                     player['game_dates_this_week_full'].append(game_date_str)
+
+                    # --- [START] NEW: Find opponent and get their stats ---
+                    game_info = full_schedule_map.get(game_date_str)
+                    opponent_tricode = None
+                    if game_info:
+                        if game_info['home_team'] == player_team:
+                            opponent_tricode = game_info['away_team']
+                        elif game_info['away_team'] == player_team:
+                            opponent_tricode = game_info['home_team']
+
+                    if opponent_tricode:
+                        player['opponents_list'].append(opponent_tricode)
+                        opponent_stats = team_stats_map.get(opponent_tricode, {})
+
+                        player['opponent_stats_this_week'].append({
+                            'game_date': game_date.strftime('%a, %b %d'), # Format date for modal
+                            'opponent_tricode': opponent_tricode,
+                            'ga_gm': opponent_stats.get('ga_gm'),
+                            'soga_gm': opponent_stats.get('soga_gm'),
+                            'ga_gm_weekly': opponent_stats.get('ga_gm_weekly'),
+                            'soga_gm_weekly': opponent_stats.get('soga_gm_weekly'),
+                            'gf_gm': opponent_stats.get('gf_gm'),
+                            'sogf_gm': opponent_stats.get('sogf_gm'),
+                            'gf_gm_weekly': opponent_stats.get('gf_gm_weekly'),
+                            'sogf_gm_weekly': opponent_stats.get('sogf_gm_weekly')
+                        })
+                    # --- [END] NEW ---
+
                 if start_date_next and end_date_next and start_date_next <= game_date <= end_date_next:
                     player['games_next_week'].append(game_date.strftime('%a'))
 
@@ -2782,23 +2810,21 @@ def get_free_agent_data():
 
         all_cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
 
-        # --- NEW: Determine target week based on request ---
-        selected_week_str = request_data.get('selected_week') # This might be "1", "2", etc. or None
+        # --- [START] NEW: Determine target week ---
+        selected_week_str = request_data.get('selected_week')
         target_week = None
 
         if selected_week_str:
             try:
                 target_week = int(selected_week_str)
-                # Check if this week exists in the 'weeks' table
                 cursor.execute("SELECT 1 FROM weeks WHERE week_num = ?", (target_week,))
                 if not cursor.fetchone():
-                    target_week = None # Week doesn't exist, fall back
+                    target_week = None
                     logging.warn(f"Selected week '{selected_week_str}' not found in database. Falling back to current week.")
             except ValueError:
                 logging.warn(f"Invalid selected_week value: '{selected_week_str}'. Falling back to current week.")
 
         if target_week is None:
-            # Fallback logic: Determine current week based on today's date
             today = date.today().isoformat()
             cursor.execute("SELECT week_num FROM weeks WHERE start_date <= ? AND end_date >= ?", (today, today))
             current_week_row = cursor.fetchone()
@@ -2806,17 +2832,36 @@ def get_free_agent_data():
             logging.info(f"No valid selected week provided. Using current week: {target_week}")
         else:
             logging.info(f"Using selected week: {target_week}")
-        # --- END NEW ---
+        # --- [END] NEW ---
+
+        # --- [START] NEW: Pre-fetch schedule and stats for all teams ---
+        cursor.execute("SELECT game_date, home_team, away_team FROM schedule")
+        schedule_data = decode_dict_values([dict(row) for row in cursor.fetchall()])
+        full_schedule_map = {g['game_date']: {'home_team': g['home_team'], 'away_team': g['away_team']} for g in schedule_data}
+
+        team_stats_map = {}
+        cursor.execute("SELECT * FROM team_stats_summary")
+        for row in cursor.fetchall():
+            team_stats_map[row['team_tricode']] = dict(row)
+
+        cursor.execute("SELECT * FROM team_stats_weekly")
+        for row in cursor.fetchall():
+            team_tricode = row['team_tricode']
+            if team_tricode in team_stats_map:
+                team_stats_map[team_tricode].update(dict(row))
+            # (No else needed, if they're not in summary, we don't have all their stats)
+        # --- [END] NEW ---
+
 
         cursor.execute("SELECT player_id FROM waiver_players")
         waiver_player_ids = [row['player_id'] for row in cursor.fetchall()]
-        # --- NEW: Use target_week ---
-        waiver_players = _get_ranked_players(cursor, waiver_player_ids, all_cat_rank_columns, target_week)
+        # --- MODIFIED: Pass new maps
+        waiver_players = _get_ranked_players(cursor, waiver_player_ids, all_cat_rank_columns, target_week, full_schedule_map, team_stats_map)
 
         cursor.execute("SELECT player_id FROM free_agents")
         free_agent_ids = [row['player_id'] for row in cursor.fetchall()]
-        # --- NEW: Use target_week ---
-        free_agents = _get_ranked_players(cursor, free_agent_ids, all_cat_rank_columns, target_week)
+        # --- MODIFIED: Pass new maps
+        free_agents = _get_ranked_players(cursor, free_agent_ids, all_cat_rank_columns, target_week, full_schedule_map, team_stats_map)
 
         # Recalculate total_cat_rank based on checked/unchecked categories
         for player_list in [waiver_players, free_agents]:
@@ -2837,18 +2882,13 @@ def get_free_agent_data():
         team_ranked_roster = []
         days_in_week_data = []
         selected_team_name = request_data.get('team_name')
-
-        # --- [START] THE FIX ---
-        # 1. Get the simulated moves list from the request
         simulated_moves = request_data.get('simulated_moves', [])
-        # --- [END] THE FIX ---
 
         if selected_team_name:
             cursor.execute("SELECT team_id FROM teams WHERE CAST(name AS TEXT) = ?", (selected_team_name,))
             team_row = cursor.fetchone()
             if team_row:
                 team_id = team_row['team_id']
-                # --- NEW: Use target_week ---
                 cursor.execute("SELECT start_date, end_date FROM weeks WHERE week_num = ?", (target_week,))
                 week_dates = cursor.fetchone()
                 if week_dates:
@@ -2857,7 +2897,6 @@ def get_free_agent_data():
                     days_in_week = [(start_date_obj + timedelta(days=i)) for i in range((end_date_obj - start_date_obj).days + 1)]
 
                     today_obj = date.today()
-                    # This logic correctly filters for dates from today onwards
                     for day in days_in_week:
                         if day >= today_obj:
                             days_in_week_data.append(day.isoformat())
@@ -2865,28 +2904,21 @@ def get_free_agent_data():
                     cursor.execute("SELECT position, position_count FROM lineup_settings WHERE position NOT IN ('BN', 'IR', 'IR+')")
                     lineup_settings = {row['position']: row['position_count'] for row in cursor.fetchall()}
 
-                    # --- NEW: Use target_week ---
                     team_ranked_roster = _get_ranked_roster_for_week(cursor, team_id, target_week)
-
-                    # --- [START] THE FIX ---
-                    # 2. Pass the simulated_moves list to the helper function
                     unused_roster_spots = _calculate_unused_spots(days_in_week, team_ranked_roster, lineup_settings, simulated_moves)
-                    # --- [END] THE FIX ---
 
-        # --- [START] MODIFICATION: Update return JSON ---
         return jsonify({
             'waiver_players': waiver_players,
             'free_agents': free_agents,
             'scoring_categories': all_scoring_categories, # For checkboxes
             'skater_categories': skater_categories,     # For skater table
             'goalie_categories': goalie_categories,     # For goalie table
-            'ranked_categories': all_scoring_categories, # Backwards compatibility for now
+            'ranked_categories': all_scoring_categories,
             'checked_categories': checked_categories,
             'unused_roster_spots': unused_roster_spots,
             'team_roster': [dict(p) for p in team_ranked_roster],
             'week_dates': days_in_week_data
         })
-        # --- [END] MODIFICATION ---
 
     except Exception as e:
         logging.error(f"Error fetching free agent data: {e}", exc_info=True)
