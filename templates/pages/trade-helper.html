@@ -3,6 +3,20 @@
         <h2 class="text-2xl font-bold">Trade Helper</h2>
         <span class="help-icon" data-title="Trade Helper" data-text="This page shows your team's category ranks and average delta against the rest of the league, based on 'all' season data. Use this to identify your team's strengths and weaknesses for potential trades.">?</span>
     </div>
+    <div class="flex items-center gap-4 mb-4" id="trade-helper-controls">
+        <div class="flex items-center gap-2">
+            <label for="trade-from-select" class="text-sm font-medium text-gray-300">Trading From Category:</label>
+            <select id="trade-from-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                <option selected value="">-- Select Category --</option>
+            </select>
+        </div>
+        <div class="flex items-center gap-2">
+            <label for="trade-to-select" class="text-sm font-medium text-gray-300">Trading to Acquire Category:</label>
+            <select id="trade-to-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                <option selected value="">-- Select Category --</option>
+            </select>
+        </div>
+    </div>
 
     <p id="trade-helper-loading" class="text-gray-400 mb-4">Loading team strength data...</p>
 

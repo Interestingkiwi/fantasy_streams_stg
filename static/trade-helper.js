@@ -6,13 +6,15 @@
     const loadingText = document.getElementById('trade-helper-loading');
     const skaterTableContainer = document.getElementById('skater-table-container');
     const goalieTableContainer = document.getElementById('goalie-table-container');
+    const tradeFromSelect = document.getElementById('trade-from-select');
+    const tradeToSelect = document.getElementById('trade-to-select');
 
     // --- Global elements from home.html ---
     const yourTeamSelect = document.getElementById('your-team-select');
 
     // Main initialization function for this page
     async function init() {
-        if (!loadingText || !skaterTableContainer || !goalieTableContainer || !yourTeamSelect) {
+        if (!loadingText || !skaterTableContainer || !goalieTableContainer || !yourTeamSelect || !tradeFromSelect || !tradeToSelect) {
             console.error('Trade Helper script failed: Required DOM elements are missing.');
             if (loadingText) {
                 loadingText.textContent = 'Error: Page elements failed to load. Please reload.';
@@ -65,6 +67,10 @@
 
             const data = await response.json();
 
+            if (data.all_scoring_categories) {
+                populateCategoryDropdowns(data.all_scoring_categories);
+            }
+
             if (data.skater_stats && data.goalie_stats) {
                 loadingText.textContent = `Displaying season-to-date category analysis for ${selectedTeam}.`;
                 loadingText.classList.remove('text-red-400', 'text-yellow-400');
@@ -87,6 +93,23 @@
             loadingText.classList.add('text-red-400');
         }
     }
+
+
+    function populateCategoryDropdowns(categories) {
+            // Check if dropdowns are already populated to avoid re-rendering
+            if (tradeFromSelect.options.length > 1) {
+                return; // Already populated
+            }
+
+            categories.forEach(category => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.textContent = category;
+                tradeFromSelect.appendChild(option);
+                tradeToSelect.appendChild(option.cloneNode(true)); // Use cloneNode for the second dropdown
+            });
+        }
+
 
     function renderTable(container, data, headers, title) {
         if (!data || data.length === 0) {

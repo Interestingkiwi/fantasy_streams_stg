@@ -2243,12 +2243,16 @@ def get_trade_helper_data():
             except (ValueError, TypeError):
                 pass # Ignore invalid week, will default to 'all' logic
 
-        # 3. Get Scoring Categories
+# 3. Get Scoring Categories
         cursor.execute("SELECT category, scoring_group FROM scoring ORDER BY scoring_group DESC, stat_id")
         all_categories_raw = cursor.fetchall()
         skater_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'offense']
         goalie_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'goaltending']
-        all_scoring_categories = set(skater_categories + goalie_categories)
+
+        # --- NEW: Create combined list for dropdowns ---
+        all_scoring_categories_list = skater_categories + goalie_categories
+
+        all_scoring_categories = set(all_scoring_categories_list)
         categories_to_fetch = all_scoring_categories | {'SV', 'SA', 'GA', 'TOI/G'}
         reverse_scoring_cats = {'GA', 'GAA'}
 
@@ -2348,7 +2352,8 @@ def get_trade_helper_data():
 
         return jsonify({
             'skater_stats': skater_data_rows,
-            'goalie_stats': goalie_data_rows
+            'goalie_stats': goalie_data_rows,
+            'all_scoring_categories': all_scoring_categories_list
         })
 
     except Exception as e:
