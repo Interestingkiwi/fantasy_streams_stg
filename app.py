@@ -2196,6 +2196,169 @@ def get_category_strengths_data():
             conn.close()
 
 
+@app.route('/api/trade_helper_data', methods=['POST'])
+def get_trade_helper_data():
+    """
+    Fetches streamlined category strength data for the Trade Helper page.
+    Based on get_category_strengths_data but returns only selected team's
+    ranks, average deltas, and season totals.
+    """
+    league_id = session.get('league_id')
+    conn, error_msg = get_db_connection_for_league(league_id)
+    if not conn:
+        return jsonify({'error': error_msg}), 404
+
+    try:
+        cursor = conn.cursor()
+        data = request.get_json()
+        selected_team_name = data.get('team_name')
+        week = data.get('week') # Should be 'all' for season totals
+
+        logging.info("--- Trade Helper Data ---")
+        logging.info(f"Selected team: {selected_team_name}, week: '{week}'")
+
+        # 1. Get *all* teams from the DB
+        cursor.execute("SELECT team_id, name FROM teams")
+        all_teams_raw = cursor.fetchall()
+
+        teams_map_id_to_name = {str(row['team_id']): row['name'].decode('utf-8').strip() for row in all_teams_raw}
+        teams_map_name_to_id = {v: k for k, v in teams_map_id_to_name.items()}
+        all_team_ids = list(teams_map_id_to_name.keys()) # List of string IDs
+
+        if not selected_team_name or selected_team_name not in teams_map_name_to_id:
+             return jsonify({'error': f'Valid team_name is required.'}), 404
+
+        selected_team_id = teams_map_name_to_id[selected_team_name]
+
+        # 2. Get Dates
+        start_date, end_date = None, None
+        if week != 'all':
+            try:
+                week_num_int = int(week)
+                cursor.execute("SELECT start_date, end_date FROM weeks WHERE week_num = ?", (week_num_int,))
+                week_dates = cursor.fetchone()
+                if week_dates:
+                    start_date = week_dates['start_date']
+                    end_date = week_dates['end_date']
+            except (ValueError, TypeError):
+                pass # Ignore invalid week, will default to 'all' logic
+
+        # 3. Get Scoring Categories
+        cursor.execute("SELECT category, scoring_group FROM scoring ORDER BY scoring_group DESC, stat_id")
+        all_categories_raw = cursor.fetchall()
+        skater_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'offense']
+        goalie_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'goaltending']
+        all_scoring_categories = set(skater_categories + goalie_categories)
+        categories_to_fetch = all_scoring_categories | {'SV', 'SA', 'GA', 'TOI/G'}
+        reverse_scoring_cats = {'GA', 'GAA'}
+
+        # 4. Build and execute the *league-wide* aggregation query
+        sql_params = []
+        sql_query = """
+            SELECT team_id, category, SUM(stat_value) as total
+            FROM daily_player_stats
+        """
+        if start_date and end_date: # Week-specific
+            sql_query += " WHERE date_ >= ? AND date_ <= ?"
+            sql_params.extend([start_date, end_date])
+        elif week != 'all': # Week was selected but no dates found (error)
+             sql_query += " WHERE 1=0" # Force no results
+
+        sql_query += " GROUP BY team_id, category"
+        cursor.execute(sql_query, tuple(sql_params))
+        raw_stats = decode_dict_values([dict(row) for row in cursor.fetchall()])
+
+        # 5. Pivot data for *all* teams and recalculate derived stats
+        all_team_stats = {
+            team_id: {cat: 0 for cat in categories_to_fetch}
+            for team_id in all_team_ids
+        }
+        for row in raw_stats:
+            team_id = str(row['team_id'])
+            if team_id in all_team_stats and row['category'] in all_team_stats[team_id]:
+                all_team_stats[team_id][row['category']] = row.get('total', 0)
+
+        for team_id in all_team_stats:
+            stats = all_team_stats[team_id]
+            sv = stats.get('SV', 0)
+            sa = stats.get('SA', 0)
+            ga = stats.get('GA', 0)
+            toi = stats.get('TOI/G', 0)
+            sho = stats.get('SHO', 0)
+            if sho > 0:
+                toi += (sho * 60)
+                stats['TOI/G'] = toi
+            if 'GAA' in stats:
+                stats['GAA'] = (ga * 60) / toi if toi > 0 else 0
+            if 'SVpct' in stats:
+                stats['SVpct'] = sv / sa if sa > 0 else 0
+
+        opponent_team_ids = [team_id for team_id in all_team_ids if team_id != selected_team_id]
+        num_opponents = len(opponent_team_ids)
+
+        # 6. Format data for response
+        skater_data_rows = []
+        goalie_data_rows = []
+
+        for cat in skater_categories:
+            row = {'category': cat}
+            my_value = all_team_stats[selected_team_id].get(cat, 0)
+            is_reverse = cat in reverse_scoring_cats
+            all_values = [all_team_stats[team_id].get(cat, 0) for team_id in all_team_ids]
+            sorted_values = sorted(list(set(all_values)), reverse=(not is_reverse))
+            rank = sorted_values.index(my_value) + 1
+            row['Rank'] = rank
+            row['Total'] = round(my_value, 1)
+
+            if num_opponents > 0:
+                opponent_values = [all_team_stats[team_id].get(cat, 0) for team_id in opponent_team_ids]
+                deltas = [my_value - opp_value for opp_value in opponent_values]
+                avg_delta = sum(deltas) / num_opponents
+                if is_reverse:
+                    avg_delta = -avg_delta
+                row['Average Delta'] = round(avg_delta, 2)
+            else:
+                row['Average Delta'] = 0
+            skater_data_rows.append(row)
+
+        for cat in goalie_categories:
+            row = {'category': cat}
+            my_value = all_team_stats[selected_team_id].get(cat, 0)
+            is_reverse = cat in reverse_scoring_cats
+            all_values = [all_team_stats[team_id].get(cat, 0) for team_id in all_team_ids]
+            sorted_values = sorted(list(set(all_values)), reverse=(not is_reverse))
+            rank = sorted_values.index(my_value) + 1
+            row['Rank'] = rank
+
+            if cat == 'GAA': value_rounded = round(my_value, 2)
+            elif cat == 'SVpct': value_rounded = round(my_value, 3)
+            else: value_rounded = round(my_value, 1)
+            row['Total'] = value_rounded
+
+            if num_opponents > 0:
+                opponent_values = [all_team_stats[team_id].get(cat, 0) for team_id in opponent_team_ids]
+                deltas = [my_value - opp_value for opp_value in opponent_values]
+                avg_delta = sum(deltas) / num_opponents
+                if is_reverse:
+                    avg_delta = -avg_delta
+                row['Average Delta'] = round(avg_delta, 2)
+            else:
+                row['Average Delta'] = 0
+            goalie_data_rows.append(row)
+
+        return jsonify({
+            'skater_stats': skater_data_rows,
+            'goalie_stats': goalie_data_rows
+        })
+
+    except Exception as e:
+        logging.error(f"Error fetching trade helper data: {e}", exc_info=True)
+        return jsonify({'error': f"An error occurred: {e}"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
 @app.route('/api/schedules_page_data')
 def schedules_page_data():
     """
