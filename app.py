@@ -2363,6 +2363,87 @@ def get_trade_helper_data():
         if conn:
             conn.close()
 
+@app.route('/api/trade_helper_roster_data', methods=['POST'])
+def get_trade_helper_roster_data():
+    """
+    Fetches the roster for a specific team, along with all category ranks
+    for each player. Used by the Trade Helper page.
+    """
+    league_id = session.get('league_id')
+    data = request.get_json()
+    team_name = data.get('team_name')
+
+    if not team_name:
+        return jsonify({'error': 'Team name is required.'}), 400
+
+    conn, error_msg = get_db_connection_for_league(league_id)
+    if not conn:
+        return jsonify({'error': error_msg}), 404
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Get Team ID
+        cursor.execute("SELECT team_id FROM teams WHERE CAST(name AS TEXT) = ?", (team_name,))
+        team_id_row = cursor.fetchone()
+        if not team_id_row:
+            return jsonify({'error': f'Team not found: {team_name}'}), 404
+        team_id = team_id_row['team_id']
+
+        # 2. Get Scoring Categories
+        cursor.execute("SELECT category, scoring_group FROM scoring ORDER BY scoring_group DESC, stat_id")
+        all_categories_raw = cursor.fetchall()
+        skater_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'offense']
+        goalie_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'goaltending']
+        all_scoring_categories = skater_categories + goalie_categories
+
+        # 3. Get all players on the team
+        cursor.execute("""
+            SELECT p.player_id, p.player_name, p.player_team as team, rp.eligible_positions, p.player_name_normalized
+            FROM rosters_tall r
+            JOIN rostered_players rp ON r.player_id = rp.player_id
+            JOIN players p ON rp.player_id = p.player_id
+            WHERE r.team_id = ?
+        """, (team_id,))
+        all_players_raw = cursor.fetchall()
+        all_players = decode_dict_values([dict(row) for row in all_players_raw])
+
+        # 4. Get Cat Ranks for these players
+        cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
+        valid_normalized_names = [p.get('player_name_normalized') for p in all_players if p.get('player_name_normalized')]
+
+        player_stats = {}
+        if valid_normalized_names:
+            placeholders = ','.join('?' for _ in valid_normalized_names)
+            query = f"""
+                SELECT player_name_normalized, {', '.join(cat_rank_columns)}
+                FROM joined_player_stats WHERE player_name_normalized IN ({placeholders})
+            """
+            cursor.execute(query, valid_normalized_names)
+            player_stats = {row['player_name_normalized']: dict(row) for row in cursor.fetchall()}
+
+        # 5. Enrich players with their ranks
+        for player in all_players:
+            p_stats = player_stats.get(player.get('player_name_normalized'))
+            if p_stats:
+                for cat in all_scoring_categories:
+                    rank_key = f"{cat}_cat_rank"
+                    rank_value = p_stats.get(rank_key)
+                    player[rank_key] = round(rank_value, 2) if rank_value is not None else None
+
+        return jsonify({
+            'players': all_players,
+            'skater_categories': skater_categories,
+            'goalie_categories': goalie_categories
+        })
+
+    except Exception as e:
+        logging.error(f"Error fetching trade helper roster data: {e}", exc_info=True)
+        return jsonify({'error': f"An error occurred: {e}"}), 500
+    finally:
+        if conn:
+            conn.close()
+
 
 @app.route('/api/schedules_page_data')
 def schedules_page_data():
