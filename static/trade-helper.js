@@ -28,8 +28,8 @@
         const percentage = (clampedRank - minRank) / (maxRank - minRank);
         // Hue: 0 (red) to 120 (green).
         const hue = (1 - percentage) * 120;
-        // Using HSL: vibrant, light color
-        return `hsl(${hue}, 70%, 50%)`;
+        // Using HSL: matching the pastel color from lineups.js (65% saturation, 75% lightness)
+        return `hsl(${hue}, 65%, 75%)`;
     }
 
     // Main initialization function for this page
@@ -280,8 +280,8 @@
                 let rankDisplay = (rank !== null && rank !== undefined) ? Math.round(rank) : '-';
                 const color = getHeatmapColor(rank);
 
-                // Use a light text color for dark backgrounds, dark for light
-                const textColor = (rank !== null && rank !== undefined && rank <= 10) ? 'text-white' : 'text-gray-800';
+                // --- MODIFIED: Changed text color to match lineups.js ---
+                const textColor = 'text-gray-600';
 
                 tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-center font-semibold ${textColor}" style="background-color: ${color};" title="${cat}: ${rankDisplay}">${rankDisplay}</td>`;
             });
