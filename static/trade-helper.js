@@ -1,12 +1,32 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // These are the dropdowns from the parent home.html
-    const weekSelect = document.getElementById('week-select');
-    const yourTeamSelect = document.getElementById('your-team-select');
+(async function() {
+    // A short delay to ensure the page elements are in the DOM
+    await new Promise(resolve => setTimeout(resolve, 0));
 
-    // Containers within trade-helper.html
+    // --- Page-specific elements from trade-helper.html ---
     const loadingText = document.getElementById('trade-helper-loading');
     const skaterTableContainer = document.getElementById('skater-table-container');
     const goalieTableContainer = document.getElementById('goalie-table-container');
+
+    // --- Global elements from home.html ---
+    const yourTeamSelect = document.getElementById('your-team-select');
+
+    // Main initialization function for this page
+    async function init() {
+        if (!loadingText || !skaterTableContainer || !goalieTableContainer || !yourTeamSelect) {
+            console.error('Trade Helper script failed: Required DOM elements are missing.');
+            if (loadingText) {
+                loadingText.textContent = 'Error: Page elements failed to load. Please reload.';
+                loadingText.classList.add('text-red-400');
+            }
+            return;
+        }
+
+        // Add event listeners
+        yourTeamSelect.addEventListener('change', fetchTradeHelperData);
+
+        // Initial data load
+        await fetchTradeHelperData();
+    }
 
     async function fetchTradeHelperData() {
         const selectedTeam = localStorage.getItem('selectedTeam');
@@ -22,7 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         loadingText.textContent = `Loading season data for ${selectedTeam}...`;
         loadingText.classList.add('text-gray-400');
-        loadingText.classList.remove('text-yellow-400', 'text-red-400');
+        loadingText.classList.remove('text-yellow-400', 'text-red-400', 'text-green-400');
         skaterTableContainer.innerHTML = '';
         goalieTableContainer.innerHTML = '';
 
@@ -131,17 +151,13 @@ document.addEventListener('DOMContentLoaded', () => {
         container.appendChild(table);
     }
 
-    // --- Event Listeners ---
+    // Run the initialization function
+    init().catch(err => {
+        console.error("Failed to initialize Trade Helper page:", err);
+        if (loadingText) {
+            loadingText.textContent = 'A critical error occurred while loading the page.';
+            loadingText.classList.add('text-red-400');
+        }
+    });
 
-    // Initial data load when the script runs (i.e., when the page is loaded)
-    fetchTradeHelperData();
-
-    // Add listeners to the main dropdowns in home.html to re-fetch data
-    // when the user changes team. This script will only be active when
-    // trade-helper.html is loaded, so these listeners won't conflict.
-    if (yourTeamSelect) {
-        yourTeamSelect.addEventListener('change', fetchTradeHelperData);
-    }
-
-    // Note: We don't listen to weekSelect because this page *always* shows 'all' data.
-});
+})();
