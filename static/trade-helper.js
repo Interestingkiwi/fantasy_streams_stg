@@ -17,6 +17,12 @@
     // --- Global elements from home.html ---
     const yourTeamSelect = document.getElementById('your-team-select');
 
+
+    let allPlayers = [];
+    let skaterCategories = [];
+    let goalieCategories = [];
+
+
     // --- NEW: Heatmap function (from lineups.js) ---
     function getHeatmapColor(rank) {
         if (rank === null || rank === undefined || rank === '-' || isNaN(rank)) {
@@ -50,6 +56,8 @@
             fetchTradeHelperData();
             fetchRosterData();
         });
+
+        tradeFromSelect.addEventListener('change', renderSortedRosterTables);
 
         // Initial data load
         await Promise.all([
@@ -149,13 +157,13 @@
 
             const data = await response.json();
 
-            // Filter players
-            const skaters = data.players.filter(p => !(p.eligible_positions || '').includes('G'));
-            const goalies = data.players.filter(p => (p.eligible_positions || '').includes('G'));
+            // --- MODIFIED: Store data in IIFE-scoped variables ---
+            allPlayers = data.players || [];
+            skaterCategories = data.skater_categories || [];
+            goalieCategories = data.goalie_categories || [];
 
-            // Render tables
-            renderRosterTable(rosterSkaterTableContainer, skaters, data.skater_categories, 'Skaters');
-            renderRosterTable(rosterGoalieTableContainer, goalies, data.goalie_categories, 'Goalies');
+            // --- MODIFIED: Call the new render function ---
+            renderSortedRosterTables(); // This will do the initial (unsorted) render
 
             rosterLoadingText.textContent = ''; // Clear loading text
 
@@ -244,6 +252,39 @@
         container.innerHTML = ''; // Clear loading/previous table
         container.appendChild(table);
     }
+
+
+    function renderSortedRosterTables() {
+            const selectedCategory = tradeFromSelect.value;
+            const rankKey = `${selectedCategory}_cat_rank`;
+
+            // 1. Filter players from the stored list
+            const skaters = allPlayers.filter(p => !(p.eligible_positions || '').includes('G'));
+            const goalies = allPlayers.filter(p => (p.eligible_positions || '').includes('G'));
+
+            // 2. Sort players IF a category is selected
+            if (selectedCategory) {
+                const sortFn = (a, b) => {
+                    const rankA = a[rankKey];
+                    const rankB = b[rankKey];
+
+                    // Handle nulls/undefined - push them to the end (higher rank is worse)
+                    if (rankA === null || rankA === undefined) return 1;
+                    if (rankB === null || rankB === undefined) return -1;
+
+                    // Normal numeric sort (lowest to highest)
+                    return rankA - rankB;
+                };
+
+                skaters.sort(sortFn);
+                goalies.sort(sortFn);
+            }
+            // If no category is selected, they remain in their default (unsorted) order.
+
+            // 3. Render tables
+            renderRosterTable(rosterSkaterTableContainer, skaters, skaterCategories, 'Skaters');
+            renderRosterTable(rosterGoalieTableContainer, goalies, goalieCategories, 'Goalies');
+        }
 
     function renderRosterTable(container, players, categories, title) {
         if (!players || players.length === 0) {
