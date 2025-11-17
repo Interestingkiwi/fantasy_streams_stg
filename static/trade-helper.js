@@ -303,7 +303,7 @@
         `;
 
         categories.forEach(cat => {
-            tableHtml += `<th scope="col" class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider" title="${cat}">${cat.charAt(0)}</th>`;
+            tableHtml += `<th scope="col" class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider" title="${cat}">${cat}</th>`;
         });
 
         tableHtml += `</tr></thead><tbody class="bg-gray-800 divide-y divide-gray-700">`;
