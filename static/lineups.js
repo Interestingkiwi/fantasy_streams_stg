@@ -210,6 +210,9 @@
 
         const cachedSim = localStorage.getItem(SIMULATION_KEY);
         simulatedMoves = cachedSim ? JSON.parse(cachedSim) : [];
+
+        const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
+
         try {
             const response = await fetch('/api/roster_data', {
                 method: 'POST',
@@ -218,7 +221,8 @@
                     week: selectedWeek,
                     team_name: yourTeamName,
                     categories: categoriesToSend,
-                    simulated_moves: simulatedMoves
+                    simulated_moves: simulatedMoves,
+                    sourcing: selectedSourcing
                 })
             });
 

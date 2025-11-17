@@ -840,7 +840,7 @@ def matchup_page_data():
 
 @app.route('/api/matchup_team_stats', methods=['POST'])
 def get_matchup_stats():
-    sourcing = request.args.get('sourcing', 'projected')
+    sourcing = data.get('sourcing', 'projected')
     stat_table = get_stat_source_table(sourcing)
     league_id = session.get('league_id')
     data = request.get_json()
@@ -2388,7 +2388,7 @@ def get_trade_helper_roster_data():
     Fetches the roster for a specific team, along with all category ranks
     for each player. Used by the Trade Helper page.
     """
-    sourcing = request.args.get('sourcing', 'projected')
+    sourcing = data.get('sourcing', 'projected')
     stat_table = get_stat_source_table(sourcing)
     league_id = session.get('league_id')
     data = request.get_json()
@@ -2822,7 +2822,7 @@ def schedules_playoff_schedules():
 
 @app.route('/api/roster_data', methods=['POST'])
 def get_roster_data():
-    sourcing = request.args.get('sourcing', 'projected')
+    sourcing = data.get('sourcing', 'projected')
     stat_table = get_stat_source_table(sourcing)
     league_id = session.get('league_id')
     data = request.get_json()
