@@ -838,10 +838,10 @@ def matchup_page_data():
 
 @app.route('/api/matchup_team_stats', methods=['POST'])
 def get_matchup_stats():
-    sourcing = data.get('sourcing', 'projected')
-    stat_table = get_stat_source_table(sourcing)
     league_id = session.get('league_id')
     data = request.get_json()
+    sourcing = data.get('sourcing', 'projected')
+    stat_table = get_stat_source_table(sourcing)
 
     week_num_str = data.get('week')
     team1_name = data.get('team1_name')
@@ -947,8 +947,8 @@ def get_matchup_stats():
         # --- [END] MODIFICATION ---
 
         # --- MODIFIED: Pass only team_stats_map ---
-        team1_ranked_roster = _get_ranked_roster_for_week(cursor, team1_id, week_num, team_stats_map)
-        team2_ranked_roster = _get_ranked_roster_for_week(cursor, team2_id, week_num, team_stats_map)
+        team1_ranked_roster = _get_ranked_roster_for_week(cursor, team1_id, week_num, team_stats_map, sourcing)
+        team2_ranked_roster = _get_ranked_roster_for_week(cursor, team2_id, week_num, team_stats_map, sourcing)
 
         # ... (rest of function is unchanged) ...
         rosters_to_update = [team1_ranked_roster, team2_ranked_roster]
@@ -2820,11 +2820,10 @@ def schedules_playoff_schedules():
 
 @app.route('/api/roster_data', methods=['POST'])
 def get_roster_data():
-    sourcing = data.get('sourcing', 'projected')
-    stat_table = get_stat_source_table(sourcing)
     league_id = session.get('league_id')
     data = request.get_json()
-
+    sourcing = data.get('sourcing', 'projected')
+    stat_table = get_stat_source_table(sourcing)
     week_num_str = data.get('week')
     team_name = data.get('team_name')
     simulated_moves = data.get('simulated_moves', [])
@@ -2883,7 +2882,7 @@ def get_roster_data():
         # --- [END] MODIFICATION ---
 
         # --- MODIFIED: Pass only team_stats_map ---
-        active_players = _get_ranked_roster_for_week(cursor, team_id, week_num, team_stats_map)
+        active_players = _get_ranked_roster_for_week(cursor, team_id, week_num, team_stats_map, sourcing)
 
         cursor.execute("""
             SELECT p.player_id, p.player_name, p.player_team as team, rp.eligible_positions, p.player_name_normalized, p.status
@@ -3138,7 +3137,7 @@ def get_free_agent_data():
                     lineup_settings = {row['position']: row['position_count'] for row in cursor.fetchall()}
 
                     # --- MODIFIED: Pass only team_stats_map ---
-                    team_ranked_roster = _get_ranked_roster_for_week(cursor, team_id, target_week, team_stats_map)
+                    team_ranked_roster = _get_ranked_roster_for_week(cursor, team_id, target_week, team_stats_map, sourcing)
 
                     unused_roster_spots = _calculate_unused_spots(days_in_week, team_ranked_roster, lineup_settings, simulated_moves)
 
