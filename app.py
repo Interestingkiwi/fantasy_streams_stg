@@ -171,6 +171,18 @@ def get_yfa_lg_instance():
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
+def get_stat_source_table(sourcing_key):
+    """
+    Returns the correct, safe table name based on the sourcing key.
+    Defaults to 'joined_player_stats' for safety.
+    """
+    if sourcing_key == 'todate':
+        return 'joined_player_stats_real'
+    elif sourcing_key == 'combined':
+        return 'joined_player_stats_combined'
+    else:
+        # Default to 'projected' (the original table)
+        return 'joined_player_stats'
 
 def get_db_connection_for_league(league_id):
     """Finds and connects to the league's database. Uses a test DB if configured."""
@@ -355,12 +367,15 @@ def _get_ranked_roster_for_week(cursor, team_id, week_num, team_stats_map):
     Internal helper to fetch a team's full roster for a week and enrich it
     with game schedules and player performance ranks.
     """
+    sourcing = request.args.get('sourcing', 'projected')
+    stat_table = get_stat_source_table(sourcing)
     cursor.execute("SELECT start_date, end_date FROM weeks WHERE week_num = ?", (week_num,))
     week_dates = cursor.fetchone()
     if not week_dates:
         return []
     start_date = week_dates['start_date'] # Keep as string for SQL
     end_date = week_dates['end_date']     # Keep as string for SQL
+
 
     cursor.execute("SELECT start_date, end_date FROM weeks WHERE week_num = ?", (week_num + 1,))
     week_dates_next = cursor.fetchone()
@@ -459,7 +474,7 @@ def _get_ranked_roster_for_week(cursor, team_id, week_num, team_stats_map):
         placeholders = ','.join('?' for _ in normalized_names)
         query = f"""
             SELECT player_name_normalized, {', '.join(cat_rank_columns)}
-            FROM joined_player_stats
+            FROM {stat_table} j
             WHERE player_name_normalized IN ({placeholders})
         """
         cursor.execute(query, normalized_names)
@@ -538,6 +553,8 @@ def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num, team_sta
     """
     Internal helper to fetch player details, ranks, and schedules for a list of player IDs.
     """
+    sourcing = request.args.get('sourcing', 'projected')
+    stat_table = get_stat_source_table(sourcing)
     if not player_ids:
         return []
 
@@ -579,7 +596,7 @@ def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num, team_sta
 
     query = f"""
         SELECT {', '.join(columns_to_select)}
-        FROM joined_player_stats
+        FROM {stat_table} j
         WHERE player_id IN ({placeholders})
     """
     cursor.execute(query, player_ids)
@@ -823,6 +840,8 @@ def matchup_page_data():
 
 @app.route('/api/matchup_team_stats', methods=['POST'])
 def get_matchup_stats():
+    sourcing = request.args.get('sourcing', 'projected')
+    stat_table = get_stat_source_table(sourcing)
     league_id = session.get('league_id')
     data = request.get_json()
 
@@ -956,7 +975,7 @@ def get_matchup_stats():
             all_starter_ids_today = [p['player_id'] for p in team1_starters + team2_starters]
             if all_starter_ids_today:
                 placeholders = ','.join('?' for _ in all_starter_ids_today)
-                query = f"SELECT player_id, {', '.join(projection_cats)} FROM joined_player_stats WHERE player_id IN ({placeholders})"
+                query = f"SELECT player_id, {', '.join(projection_cats)} FROM {stat_table} j WHERE player_id IN ({placeholders})"
                 cursor.execute(query, tuple(all_starter_ids_today))
                 player_avg_stats = {row['player_id']: dict(row) for row in cursor.fetchall()}
                 for starter in team1_starters:
@@ -2369,6 +2388,8 @@ def get_trade_helper_roster_data():
     Fetches the roster for a specific team, along with all category ranks
     for each player. Used by the Trade Helper page.
     """
+    sourcing = request.args.get('sourcing', 'projected')
+    stat_table = get_stat_source_table(sourcing)
     league_id = session.get('league_id')
     data = request.get_json()
     team_name = data.get('team_name')
@@ -2417,7 +2438,7 @@ def get_trade_helper_roster_data():
             placeholders = ','.join('?' for _ in valid_normalized_names)
             query = f"""
                 SELECT player_name_normalized, {', '.join(cat_rank_columns)}
-                FROM joined_player_stats WHERE player_name_normalized IN ({placeholders})
+                FROM {stat_table} j WHERE player_name_normalized IN ({placeholders})
             """
             cursor.execute(query, valid_normalized_names)
             player_stats = {row['player_name_normalized']: dict(row) for row in cursor.fetchall()}
@@ -2801,6 +2822,8 @@ def schedules_playoff_schedules():
 
 @app.route('/api/roster_data', methods=['POST'])
 def get_roster_data():
+    sourcing = request.args.get('sourcing', 'projected')
+    stat_table = get_stat_source_table(sourcing)
     league_id = session.get('league_id')
     data = request.get_json()
 
@@ -2898,7 +2921,7 @@ def get_roster_data():
             columns_to_select = cat_rank_columns + pp_stat_columns
             query = f"""
                 SELECT player_name_normalized, {', '.join(columns_to_select)}
-                FROM joined_player_stats WHERE player_name_normalized IN ({placeholders})
+                FROM {stat_table} j WHERE player_name_normalized IN ({placeholders})
             """
             cursor.execute(query, valid_normalized_names)
             player_stats = {row['player_name_normalized']: dict(row) for row in cursor.fetchall()}

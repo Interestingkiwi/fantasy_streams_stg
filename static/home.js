@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (data.timestamp) {
-/*                timestampText.textContent = `League data was last pulled from Yahoo at ${data.timestamp}`; */
+/* timestampText.textContent = `League data was last pulled from Yahoo at ${data.timestamp}`; */
                 timestampText.textContent = `League data exists, check League Database tab for last update`;
             } else {
                 timestampText.textContent = 'League data has not been updated yet. Please visit the League Database page.';
@@ -31,93 +31,101 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function initDropdowns() {
-        try {
-            const response = await fetch('/api/matchup_page_data');
-            const data = await response.json();
+    // *** NEW FUNCTION TO INITIALIZE THE STAT SOURCING DROPDOWN ***
+    function initStatSourcingDropdown() {
+        const statSourcingSelect = document.getElementById('stat-sourcing-select');
+        if (!statSourcingSelect) return; // Exit if element doesn't exist
 
-            if (!response.ok || !data.db_exists) {
-                // If DB doesn't exist, show a button to retry
-                dropdownContainer.innerHTML = `<button id="reload-dropdowns" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Create DB then press to load</button>`;
-                document.getElementById('reload-dropdowns').addEventListener('click', initDropdowns);
-                return; // Stop further execution
-            }
+        const options = [
+            { value: 'projected', text: 'Projected ROS' },
+            { value: 'todate', text: 'Season To Date' },
+            { value: 'combined', text: 'Combined' }
+        ];
 
-            // If DB exists, show and populate dropdowns with titles and side-by-side layout
-            dropdownContainer.innerHTML = `
-                <div class="flex items-center gap-2">
-                    <label for="week-select" class="text-sm font-medium text-gray-300">Fantasy Week:</label>
-                    <select id="week-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
-                        <option selected>Choose a week</option>
-                    </select>
-                </div>
-                <div class="flex items-center gap-2">
-                    <label for="your-team-select" class="text-sm font-medium text-gray-300">Your Team:</label>
-                    <select id="your-team-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
-                        <option selected>Choose your team</option>
-                    </select>
-                </div>
-            `;
-            // Add the flex class back to the container itself
-            dropdownContainer.classList.add('flex', 'items-center', 'gap-4');
+        let sourcingOptions = '';
+        options.forEach(opt => {
+            sourcingOptions += `<option value="${opt.value}">${opt.text}</option>`;
+        });
+        statSourcingSelect.innerHTML = sourcingOptions;
 
-
-            pageData = data;
-            populateDropdowns();
-
-            // Re-add event listeners after recreating the dropdowns
-            document.getElementById('week-select').addEventListener('change', (e) => {
-                localStorage.setItem('selectedWeek', e.target.value);
-            });
-            document.getElementById('your-team-select').addEventListener('change', (e) => {
-                localStorage.setItem('selectedTeam', e.target.value);
-            });
-
-        } catch (error) {
-            console.error('Initialization error for dropdowns:', error.message);
+        // Restore selection from localStorage or set default
+        const savedStatSourcing = localStorage.getItem('selectedStatSourcing');
+        if (savedStatSourcing && options.some(o => o.value === savedStatSourcing)) {
+            statSourcingSelect.value = savedStatSourcing;
+        } else {
+            // Default to 'projected' if nothing is saved or value is invalid
+            statSourcingSelect.value = 'projected';
+            localStorage.setItem('selectedStatSourcing', 'projected');
         }
+
+        // Add event listener to save changes to localStorage
+        statSourcingSelect.addEventListener('change', () => {
+            localStorage.setItem('selectedStatSourcing', statSourcingSelect.value);
+        });
     }
 
-    function populateDropdowns() {
-        const weekSelect = document.getElementById('week-select');
-        const yourTeamSelect = document.getElementById('your-team-select');
+    async function initDropdowns() {
+        // *** MOVED STAT SOURCING INIT TO ITS OWN FUNCTION ***
 
-        // Populate Weeks
-        weekSelect.innerHTML = pageData.weeks.map(week =>
-            `<option value="${week.week_num}">
-                Week ${week.week_num} (${week.start_date} to ${week.end_date})
-            </option>`
-        ).join('');
+        try {
+            const response = await fetch('/api/matchup_data');
+            pageData = await response.json();
 
-        // Populate Teams
-        const teamOptions = pageData.teams.map(team =>
-            `<option value="${team.name}">${team.name}</option>`
-        ).join('');
-        yourTeamSelect.innerHTML = teamOptions;
+            if (!response.ok) {
+                throw new Error(pageData.error || 'Failed to fetch page data');
+            }
 
-        // Restore team selection from localStorage
-        const savedTeam = localStorage.getItem('selectedTeam');
-        if (savedTeam) {
-            yourTeamSelect.value = savedTeam;
-        }
+            const weekSelect = document.getElementById('week-select');
+            const yourTeamSelect = document.getElementById('your-team-select');
 
-        // Check if a session has started to handle the week selection
-        if (!sessionStorage.getItem('fantasySessionStarted')) {
-            // This is a new session. Default to the current week.
-            const currentWeek = pageData.current_week;
-            weekSelect.value = currentWeek;
-            // Save it to localStorage so it persists during navigation
-            localStorage.setItem('selectedWeek', currentWeek);
-            // Mark the session as started
-            sessionStorage.setItem('fantasySessionStarted', 'true');
-        } else {
-            // A session is active. Restore the last selected week from localStorage.
-            const savedWeek = localStorage.getItem('selectedWeek');
-            if (savedWeek) {
-                weekSelect.value = savedWeek;
+            if (!weekSelect || !yourTeamSelect) {
+                console.error('Week or Team select dropdown not found');
+                return;
+            }
+
+            // Populate Week Select
+            let weekOptions = '';
+            pageData.weeks.forEach(week => {
+                weekOptions += `<option value="${week.week_num}">${week.label}</option>`;
+            });
+            weekSelect.innerHTML = weekOptions;
+
+            // Populate Team Select
+            let teamOptions = '';
+            pageData.teams.forEach(team => {
+                teamOptions += `<option value="${team.team_id}">${team.name}</option>`;
+            });
+            yourTeamSelect.innerHTML = teamOptions;
+
+            // Restore team selection from localStorage
+            const savedTeam = localStorage.getItem('selectedTeam');
+            if (savedTeam) {
+                yourTeamSelect.value = savedTeam;
+            }
+
+            // Check if a session has started to handle the week selection
+            if (!sessionStorage.getItem('fantasySessionStarted')) {
+                // This is a new session. Default to the current week.
+                const currentWeek = pageData.current_week;
+                weekSelect.value = currentWeek;
+                // Save it to localStorage so it persists during navigation
+                localStorage.setItem('selectedWeek', currentWeek);
+                // Mark the session as started
+                sessionStorage.setItem('fantasySessionStarted', 'true');
             } else {
-                 // As a fallback, use the current week if nothing is in localStorage
-                weekSelect.value = pageData.current_week;
+                // A session is active. Restore the last selected week from localStorage.
+                const savedWeek = localStorage.getItem('selectedWeek');
+                if (savedWeek) {
+                    weekSelect.value = savedWeek;
+                } else {
+                    // As a fallback, use the current week if nothing is in localStorage
+                    weekSelect.value = pageData.current_week;
+                }
+            }
+        } catch (error) {
+            console.error('Error initializing dropdowns:', error);
+            if (dropdownContainer) {
+                dropdownContainer.innerHTML = `<p class="text-red-400">Error loading league data. Please try updating the database.</p>`;
             }
         }
     }
@@ -130,6 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
         getTimestamp();
     }
 
-    // Initialize the dropdowns on page load
+    // Initialize all dropdowns on page load
+    initStatSourcingDropdown(); // *** CALL THE NEW FUNCTION ***
     initDropdowns();
 });
