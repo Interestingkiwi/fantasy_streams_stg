@@ -239,12 +239,13 @@
         const selectedTeam = yourTeamSelect ? yourTeamSelect.value : null;
         const weekSelect = document.getElementById('week-select');
         const selectedWeek = weekSelect ? weekSelect.value : null;
-
+        const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
         try {
             const payload = {
                 team_name: selectedTeam,
                 simulated_moves: simulatedMoves,
-                selected_week: selectedWeek
+                selected_week: selectedWeek,
+                sourcing: selectedSourcing
             };
 
             if (selectedCategories) {

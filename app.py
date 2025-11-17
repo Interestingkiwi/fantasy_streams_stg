@@ -362,12 +362,11 @@ def get_optimal_lineup(players, lineup_settings):
     return lineup
 
 
-def _get_ranked_roster_for_week(cursor, team_id, week_num, team_stats_map):
+def _get_ranked_roster_for_week(cursor, team_id, week_num, team_stats_map, sourcing='projected'):
     """
     Internal helper to fetch a team's full roster for a week and enrich it
     with game schedules and player performance ranks.
     """
-    sourcing = request.args.get('sourcing', 'projected')
     stat_table = get_stat_source_table(sourcing)
     cursor.execute("SELECT start_date, end_date FROM weeks WHERE week_num = ?", (week_num,))
     week_dates = cursor.fetchone()
@@ -549,11 +548,10 @@ def _calculate_unused_spots(days_in_week, active_players, lineup_settings, simul
 
     return unused_spots_data
 
-def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num, team_stats_map):
+def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num, team_stats_map, sourcing='projected'):
     """
     Internal helper to fetch player details, ranks, and schedules for a list of player IDs.
     """
-    sourcing = request.args.get('sourcing', 'projected')
     stat_table = get_stat_source_table(sourcing)
     if not player_ids:
         return []
@@ -3039,7 +3037,7 @@ def get_free_agent_data():
     try:
         cursor = conn.cursor()
         request_data = request.get_json(silent=True) or {}
-
+        sourcing = request_data.get('sourcing', 'projected')
         cursor.execute("SELECT category, scoring_group FROM scoring ORDER BY scoring_group DESC, stat_id")
         all_categories_raw = cursor.fetchall()
         skater_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'offense']
@@ -3091,12 +3089,12 @@ def get_free_agent_data():
         cursor.execute("SELECT player_id FROM waiver_players")
         waiver_player_ids = [row['player_id'] for row in cursor.fetchall()]
         # --- MODIFIED: Pass only team_stats_map ---
-        waiver_players = _get_ranked_players(cursor, waiver_player_ids, all_cat_rank_columns, target_week, team_stats_map)
+        waiver_players = _get_ranked_players(cursor, waiver_player_ids, all_cat_rank_columns, target_week, team_stats_map, sourcing)
 
         cursor.execute("SELECT player_id FROM free_agents")
         free_agent_ids = [row['player_id'] for row in cursor.fetchall()]
         # --- MODIFIED: Pass only team_stats_map ---
-        free_agents = _get_ranked_players(cursor, free_agent_ids, all_cat_rank_columns, target_week, team_stats_map)
+        free_agents = _get_ranked_players(cursor, free_agent_ids, all_cat_rank_columns, target_week, team_stats_map, sourcing)
 
         # Recalculate total_cat_rank
         for player_list in [waiver_players, free_agents]:
