@@ -2216,8 +2216,8 @@ def get_category_strengths_data():
 @app.route('/api/trade_helper_data', methods=['POST'])
 def get_trade_helper_data():
     """
-    Fetches category strength data for the selected team AND generates
-    a full league rank matrix for trade analysis.
+    Fetches category strength data and generates a league rank matrix.
+    Includes logic for nesting Goalie sub-categories (GAA -> GA, SV% -> SV/SA).
     """
     league_id = session.get('league_id')
     conn, error_msg = get_db_connection_for_league(league_id)
@@ -2242,11 +2242,11 @@ def get_trade_helper_data():
 
         selected_team_id = teams_map_name_to_id[selected_team_name]
 
-        # --- FIX: Define opponent lists early ---
+        # Define opponent lists
         opponent_team_ids = [tid for tid in all_team_ids if tid != selected_team_id]
         num_opponents = len(opponent_team_ids)
 
-        # 2. Get Dates (Default to Season/All)
+        # 2. Get Dates
         start_date, end_date = None, None
         if week != 'all':
             try:
@@ -2266,8 +2266,15 @@ def get_trade_helper_data():
         goalie_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'goaltending']
         all_scoring_categories_list = skater_categories + goalie_categories
 
-        # Fetch required raw stats
-        categories_to_fetch = set(all_scoring_categories_list) | {'SV', 'SA', 'GA', 'TOI/G'}
+        # --- CONFIG: Sub-Category Logic ---
+        # Maps Parent Category -> List of Children to display
+        goalie_sub_cats_map = {'GAA': ['GA', 'TOI/G'], 'SVpct': ['SV', 'SA']}
+
+        # We must fetch and rank these sub-cats even if they aren't scoring settings
+        extra_stats = {'SV', 'SA', 'GA', 'TOI/G'}
+        categories_to_fetch = set(all_scoring_categories_list) | extra_stats
+
+        # Lower is better for these
         reverse_scoring_cats = {'GA', 'GAA', 'L'}
 
         # 4. Aggregate Stats
@@ -2281,7 +2288,7 @@ def get_trade_helper_data():
         cursor.execute(sql_query, tuple(sql_params))
         raw_stats = decode_dict_values([dict(row) for row in cursor.fetchall()])
 
-        # 5. Pivot Data & Calculate Derived Stats (GAA, SV%, etc)
+        # 5. Pivot Data & Calculate Derived Stats
         all_team_stats = {tid: {cat: 0 for cat in categories_to_fetch} for tid in all_team_ids}
 
         for row in raw_stats:
@@ -2291,59 +2298,71 @@ def get_trade_helper_data():
 
         for tid in all_team_stats:
             stats = all_team_stats[tid]
-            # Goalie Calc Logic
             sv, sa, ga = stats.get('SV', 0), stats.get('SA', 0), stats.get('GA', 0)
             toi, sho = stats.get('TOI/G', 0), stats.get('SHO', 0)
-            if sho > 0: toi += (sho * 60) # Fix TOI
+            if sho > 0: toi += (sho * 60)
+            stats['TOI/G'] = toi # Ensure TOI is updated
 
-            if 'GAA' in stats: stats['GAA'] = (ga * 60) / toi if toi > 0 else 0
-            if 'SVpct' in stats: stats['SVpct'] = sv / sa if sa > 0 else 0
+            if 'GAA' in categories_to_fetch:
+                stats['GAA'] = (ga * 60) / toi if toi > 0 else 0
+            if 'SVpct' in categories_to_fetch:
+                stats['SVpct'] = sv / sa if sa > 0 else 0
 
         # 6. Generate League Rank Matrix
+        # We calculate ranks for ALL fetched categories so we can display ranks for sub-cats
         league_rank_matrix = {}
-
         for team_name in teams_map_name_to_id.keys():
             league_rank_matrix[team_name] = {}
 
-        for cat in all_scoring_categories_list:
-            # Get all values for this cat
+        for cat in categories_to_fetch:
             is_reverse = cat in reverse_scoring_cats
             values_map = {tid: all_team_stats[tid].get(cat, 0) for tid in all_team_ids}
-            # Sort values
             sorted_values = sorted(list(set(values_map.values())), reverse=(not is_reverse))
 
-            # Assign ranks
             for tid in all_team_ids:
                 val = values_map[tid]
                 rank = sorted_values.index(val) + 1
                 t_name = teams_map_id_to_name[tid]
                 league_rank_matrix[t_name][cat] = rank
 
-        # 7. Format Response for the UI
+        # 7. Format Response
         skater_data_rows = []
         goalie_data_rows = []
 
+        def build_row_dict(cat):
+            # Helper to build a single row object
+            my_rank = league_rank_matrix[selected_team_name].get(cat, '-')
+            my_val = all_team_stats[selected_team_id].get(cat, 0)
+
+            is_rev = cat in reverse_scoring_cats
+            avg_delta = 0
+            if num_opponents > 0:
+                opp_vals = [all_team_stats[tid].get(cat, 0) for tid in opponent_team_ids]
+                deltas = [my_val - ov for ov in opp_vals]
+                avg_delta = sum(deltas) / num_opponents
+                if is_rev: avg_delta = -avg_delta
+
+            val_display = round(my_val, 3) if cat == 'SVpct' else (round(my_val, 2) if cat == 'GAA' else round(my_val, 1))
+
+            return {
+                'category': cat,
+                'Rank': my_rank,
+                'Total': val_display,
+                'Average Delta': round(avg_delta, 2)
+            }
+
         def build_rows(cats, target_list):
             for cat in cats:
-                my_rank = league_rank_matrix[selected_team_name][cat]
-                my_val = all_team_stats[selected_team_id].get(cat, 0)
+                # 1. Build Main Row
+                row = build_row_dict(cat)
+                row['sub_rows'] = []
 
-                # Calculate Avg Delta
-                is_rev = cat in reverse_scoring_cats
+                # 2. Check and Build Sub-Rows (Children)
+                if cat in goalie_sub_cats_map:
+                    for sub_cat in goalie_sub_cats_map[cat]:
+                        sub_row = build_row_dict(sub_cat)
+                        row['sub_rows'].append(sub_row)
 
-                avg_delta = 0
-                if num_opponents > 0: # Now safe to use
-                    opp_vals = [all_team_stats[tid].get(cat, 0) for tid in opponent_team_ids]
-                    deltas = [my_val - ov for ov in opp_vals]
-                    avg_delta = sum(deltas) / num_opponents
-                    if is_rev: avg_delta = -avg_delta
-
-                row = {
-                    'category': cat,
-                    'Rank': my_rank,
-                    'Total': round(my_val, 2) if cat in ['GAA', 'SVpct'] else round(my_val, 1),
-                    'Average Delta': round(avg_delta, 2)
-                }
                 target_list.append(row)
 
         build_rows(skater_categories, skater_data_rows)
