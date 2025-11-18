@@ -2,73 +2,43 @@
     <div class="flex justify-between items-center mb-4">
         <div class="flex items-center gap-4">
             <h2 class="text-2xl font-bold">Trade Helper</h2>
-            <span class="help-icon" data-title="Trade Helper" data-text="This page shows your team's category ranks and average delta against the rest of the league, based on 'all' season data. Use this to identify your team's strengths and weaknesses for potential trades.">?</span>
+            <span class="help-icon" data-title="Trade Helper" data-text="Select 'Ideal Trade Partners' to see team strengths. Select 'Trade Compare' to compare rosters side-by-side.">?</span>
         </div>
-        </div>
+    </div>
 
-    <div class="flex items-center gap-4 mb-4" id="trade-helper-controls">
+    <div class="flex flex-wrap items-center gap-4 mb-6 bg-gray-800 p-4 rounded-lg shadow" id="trade-helper-controls">
         <div class="flex items-center gap-2">
-            <label for="trade-from-select" class="text-sm font-medium text-gray-300">Trading From Category:</label>
-            <select id="trade-from-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+            <label for="trade-from-select" class="text-sm font-medium text-gray-300">Trade From (Sort Team):</label>
+            <select id="trade-from-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-48 p-2.5">
                 <option selected value="">-- Select Category --</option>
             </select>
         </div>
         <div class="flex items-center gap-2">
-            <label for="trade-to-select" class="text-sm font-medium text-gray-300">Trading to Acquire Category:</label>
-            <select id="trade-to-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+            <label for="trade-to-select" class="text-sm font-medium text-gray-300">Trade To (Sort Opponent):</label>
+            <select id="trade-to-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-48 p-2.5">
                 <option selected value="">-- Select Category --</option>
             </select>
         </div>
     </div>
 
-    <p id="trade-helper-loading" class="text-gray-400 mb-4">Loading team strength data...</p>
+    <p id="trade-helper-loading" class="text-gray-400 mb-4 h-6"></p>
 
-    <div class="grid grid-cols-1 md:grid-cols-5 gap-7">
-
-        <div class="md:col-span-1 space-y-6">
-            <div>
-                <h3 class="text-xl font-semibold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400">Skater Category Analysis</h3>
-                <div id="skater-table-container" class="overflow-x-auto rounded-lg shadow-md">
-                    </div>
-            </div>
-            <div>
-                <h3 class="text-xl font-semibold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400">Goalie Category Analysis</h3>
-                <div id="goalie-table-container" class="overflow-x-auto rounded-lg shadow-md">
-                    </div>
-            </div>
-        </div>
-
-        <div class="md:col-span-3 space-y-8">
-            <p id="roster-loading" class="text-gray-400"></p>
-            <div>
-                <h3 class="text-xl font-semibold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400">Team Skaters</h3>
-                <div id="roster-skater-table-container" class="overflow-x-auto rounded-lg shadow-md">
-                    </div>
-            </div>
-            <div>
-                <h3 class="text-xl font-semibold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400">Team Goalies</h3>
-                <div id="roster-goalie-table-container" class="overflow-x-auto rounded-lg shadow-md">
-                    </div>
-            </div>
-        </div>
-
-        <div class="md:col-span-3 space-y-8">
-            <h2 class="text-2xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-red-500">Opponent Rosters</h2>
-
-            <div id="opponent-skater-section">
-                <h3 class="text-xl font-semibold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-red-400">Opponent Skaters</h3>
-                <div id="opponent-skater-table-container" class="overflow-x-auto rounded-lg shadow-md"></div>
-            </div>
-
-            <div id="opponent-goalie-section">
-                <h3 class="text-xl font-semibold mb-3 mt-6 text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-red-400">Opponent Goalies</h3>
-                <div id="opponent-goalie-table-container" class="overflow-x-auto rounded-lg shadow-md"></div>
-            </div>
-
-        <div class="md:col-span-1">
-            </div>
-
+    <div class="border-b border-gray-700 mb-6">
+        <nav class="flex space-x-8" aria-label="Tabs">
+            <button id="nav-partners" class="subpage-nav-link border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                onclick="loadSubPage('trade-partners')">
+                Ideal Trade Partners
+            </button>
+            <button id="nav-compare" class="subpage-nav-link border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                onclick="loadSubPage('trade-compare')">
+                Trade Compare
+            </button>
+        </nav>
     </div>
+
+    <div id="subpage-content" class="min-h-[400px]">
+        </div>
+
 </div>
 
 <script src="{{ url_for('static', filename='trade-helper.js') }}"></script>

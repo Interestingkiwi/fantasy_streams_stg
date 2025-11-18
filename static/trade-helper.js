@@ -2,428 +2,368 @@
     // A short delay to ensure the page elements are in the DOM
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    // --- Page-specific elements from trade-helper.html ---
+    // --- Global Elements (Always present in trade-helper.html) ---
     const loadingText = document.getElementById('trade-helper-loading');
-    const skaterTableContainer = document.getElementById('skater-table-container');
-    const goalieTableContainer = document.getElementById('goalie-table-container');
     const tradeFromSelect = document.getElementById('trade-from-select');
     const tradeToSelect = document.getElementById('trade-to-select');
-    // --- Roster table elements ---
-    const rosterLoadingText = document.getElementById('roster-loading');
-    const rosterSkaterTableContainer = document.getElementById('roster-skater-table-container');
-    const rosterGoalieTableContainer = document.getElementById('roster-goalie-table-container');
-    // --- Opponent Roster ---
-    const opponentSkaterTableContainer = document.getElementById('opponent-skater-table-container');
-    const opponentGoalieTableContainer = document.getElementById('opponent-goalie-table-container');
-    const opponentSkaterSection = document.getElementById('opponent-skater-section');
-    const opponentGoalieSection = document.getElementById('opponent-goalie-section');
-
-
-    // --- Global elements from home.html ---
     const yourTeamSelect = document.getElementById('your-team-select');
+    const navPartners = document.getElementById('nav-partners');
+    const navCompare = document.getElementById('nav-compare');
+    const subpageContent = document.getElementById('subpage-content');
 
+    // --- State Variables ---
+    let currentSubPage = 'trade-partners'; // Default page
+    let userTeamName = localStorage.getItem('selectedTeam') || '';
 
-    let allPlayers = []; // Now holds ALL rostered players in the league
-    let skaterCategories = [];
-    let goalieCategories = [];
-    let userTeamName = ''; // Global to hold the selected team name
+    // --- Data Store ---
+    let categoryData = { skater_stats: [], goalie_stats: [] }; // For Trade Partners
+    let rosterData = { players: [], skaterCategories: [], goalieCategories: [] }; // For Trade Compare
 
-
-    // --- NEW: Heatmap function (from lineups.js) ---
+    // --- Heatmap Helper ---
     function getHeatmapColor(rank) {
         if (rank === null || rank === undefined || rank === '-' || isNaN(rank)) {
-            return ''; // No color for empty ranks
+            return '';
         }
         const minRank = 1;
         const maxRank = 20;
         const clampedRank = Math.max(minRank, Math.min(rank, maxRank));
         const percentage = (clampedRank - minRank) / (maxRank - minRank);
-        // Hue: 0 (red) to 120 (green).
+        // Hue: 0 (red) to 120 (green)
         const hue = (1 - percentage) * 120;
-        // Using HSL: matching the pastel color from lineups.js (65% saturation, 75% lightness)
         return `hsl(${hue}, 65%, 75%)`;
     }
 
-    // Main initialization function for this page
+    // --- Initialization ---
     async function init() {
-        if (!loadingText || !skaterTableContainer || !goalieTableContainer || !yourTeamSelect ||
-            !tradeFromSelect || !tradeToSelect || !rosterLoadingText || !rosterSkaterTableContainer || !rosterGoalieTableContainer) {
-            console.error('Trade Helper script failed: Required DOM elements are missing.');
-            if (loadingText) {
-                loadingText.textContent = 'Error: Page elements failed to load. Please reload.';
-                loadingText.classList.add('text-red-400');
-            }
+        if (!tradeFromSelect || !tradeToSelect || !yourTeamSelect || !subpageContent) {
+            console.error('Trade Helper: Critical elements missing.');
             return;
         }
 
-        // Add event listeners
+        // 1. Attach Event Listeners to Global Controls
         yourTeamSelect.addEventListener('change', () => {
-            // Fetch both sets of data when team changes
-            fetchTradeHelperData();
-            // --- MODIFIED: Call new league data function ---
-            fetchLeagueRosterData();
+            userTeamName = yourTeamSelect.value; // Update local state
+            // Re-fetch all data when team changes
+            fetchAllData();
         });
 
-        // --- MODIFIED: Both call the same render function, which now handles dual-sorting ---
-        tradeFromSelect.addEventListener('change', renderSortedRosterTables);
-        tradeToSelect.addEventListener('change', renderSortedRosterTables);
+        tradeFromSelect.addEventListener('change', renderCurrentPage);
+        tradeToSelect.addEventListener('change', renderCurrentPage);
 
-        // Initial data load
-        await Promise.all([
-            fetchTradeHelperData(),
-            // --- MODIFIED: Call new league data function ---
-            fetchLeagueRosterData()
-        ]);
+        // 2. Attach Navigation Listeners (These are now handled in JS, removing onclick from HTML is cleaner but onclick works too)
+        if(navPartners) navPartners.onclick = () => loadSubPage('trade-partners');
+        if(navCompare) navCompare.onclick = () => loadSubPage('trade-compare');
+
+        // 3. Initial Load
+        // Load the default subpage HTML first
+        await loadSubPage('trade-partners');
+        // Then fetch data (which will trigger a render when complete)
+        fetchAllData();
     }
 
-    async function fetchTradeHelperData() {
-        const selectedTeam = localStorage.getItem('selectedTeam');
-        const selectedWeek = 'all';
-        userTeamName = selectedTeam; // Set the global variable
+    // --- Navigation Logic ---
+    window.loadSubPage = async function(pageName) {
+        currentSubPage = pageName;
 
-        if (!selectedTeam) {
-            loadingText.textContent = "Please select your team from the dropdown above.";
-            loadingText.classList.add('text-yellow-400');
+        // 1. Update Tabs Styling
+        if (navPartners && navCompare) {
+            const activeClass = 'border-blue-500 text-blue-400';
+            const inactiveClass = 'border-transparent text-gray-400 hover:text-gray-300';
+
+            if (pageName === 'trade-partners') {
+                navPartners.className = navPartners.className.replace(inactiveClass, '').replace('border-transparent', '') + ` ${activeClass}`;
+                navCompare.className = navCompare.className.replace(activeClass, '') + ` ${inactiveClass}`;
+            } else {
+                navCompare.className = navCompare.className.replace(inactiveClass, '').replace('border-transparent', '') + ` ${activeClass}`;
+                navPartners.className = navPartners.className.replace(activeClass, '') + ` ${inactiveClass}`;
+            }
+        }
+
+        // 2. Fetch and Inject HTML
+        try {
+            // Assuming app.py route: @app.route('/pages/<path:page_name>')
+            const response = await fetch(`/pages/${pageName}.html`);
+            if (!response.ok) throw new Error(`Failed to load ${pageName}`);
+            const html = await response.text();
+            subpageContent.innerHTML = html;
+
+            // 3. Render Data into new HTML
+            renderCurrentPage();
+
+        } catch (err) {
+            console.error(err);
+            subpageContent.innerHTML = `<p class="text-red-400">Error loading content.</p>`;
+        }
+    };
+
+    // --- Data Fetching ---
+    async function fetchAllData() {
+        if (!userTeamName) {
+            if(loadingText) loadingText.textContent = "Please select a team.";
             return;
         }
 
-        loadingText.textContent = `Loading season data for ${selectedTeam}...`;
-        loadingText.classList.add('text-gray-400');
-        loadingText.classList.remove('text-yellow-400', 'text-red-400', 'text-green-400');
-        skaterTableContainer.innerHTML = '';
-        goalieTableContainer.innerHTML = '';
+        if(loadingText) {
+            loadingText.textContent = "Loading data...";
+            loadingText.classList.remove('hidden');
+        }
 
+        await Promise.all([
+            fetchCategoryStrengths(), // For Trade Partners
+            fetchLeagueRosterData()   // For Trade Compare
+        ]);
+
+        if(loadingText) loadingText.textContent = "";
+    }
+
+    async function fetchCategoryStrengths() {
         try {
             const response = await fetch('/api/trade_helper_data', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    team_name: selectedTeam,
-                    week: selectedWeek
-                }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ team_name: userTeamName, week: 'all' })
             });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to fetch data.');
-            }
-
             const data = await response.json();
 
-            if (data.all_scoring_categories) {
-                populateCategoryDropdowns(data.all_scoring_categories);
+            // Store Data
+            categoryData = data;
+
+            // Populate Dropdowns if needed (only once)
+            if (data.all_scoring_categories && tradeFromSelect.options.length <= 1) {
+                populateDropdowns(data.all_scoring_categories);
             }
 
-            if (data.skater_stats && data.goalie_stats) {
-                loadingText.textContent = `Displaying season-to-date category analysis for ${selectedTeam}.`;
-                loadingText.classList.remove('text-red-400', 'text-yellow-400');
-                loadingText.classList.add('text-green-400');
+            // Trigger Render
+            if (currentSubPage === 'trade-partners') renderCurrentPage();
 
-                const skaterHeaders = ['category', 'Rank', 'Average Delta', 'Total'];
-                const goalieHeaders = ['category', 'Rank', 'Average Delta', 'Total'];
-
-                renderTable(skaterTableContainer, data.skater_stats, skaterHeaders, 'Skater Stats');
-                renderTable(goalieTableContainer, data.goalie_stats, goalieHeaders, 'Goalie Stats');
-            } else {
-                throw new Error("Received incomplete data from server.");
-            }
-
-        } catch (error) {
-            console.error('Error in fetchTradeHelperData:', error);
-            loadingText.textContent = `Error: ${error.message}`;
-            loadingText.classList.remove('text-gray-400', 'text-green-400');
-            loadingText.classList.add('text-red-400');
+        } catch (err) {
+            console.error("Error fetching category strengths:", err);
         }
     }
 
-    // --- MODIFIED: Function to fetch LEAGUE-WIDE roster data ---
     async function fetchLeagueRosterData() {
-        const selectedTeam = localStorage.getItem('selectedTeam');
-        userTeamName = selectedTeam;
-
-        if (!selectedTeam) {
-            rosterLoadingText.textContent = "Select a team to see roster.";
-            rosterLoadingText.classList.add('text-yellow-400');
-            return;
-        }
-
-        rosterLoadingText.textContent = `Loading ALL league rosters and ranks...`;
-        rosterLoadingText.classList.add('text-gray-400');
-        rosterLoadingText.classList.remove('text-yellow-400', 'text-red-400', 'text-green-400');
-        rosterSkaterTableContainer.innerHTML = '';
-        rosterGoalieTableContainer.innerHTML = '';
-        opponentSkaterTableContainer.innerHTML = '';
-        opponentGoalieTableContainer.innerHTML = '';
-
         const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
         try {
-            // --- MODIFIED: New API endpoint (must be added to app.py) ---
             const response = await fetch('/api/trade_helper_league_roster_data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ sourcing: selectedSourcing })
             });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to fetch league roster data.');
-            }
-
             const data = await response.json();
 
-            // --- Store ALL rostered player data ---
-            allPlayers = data.players || [];
-            skaterCategories = data.skater_categories || [];
-            goalieCategories = data.goalie_categories || [];
+            // Store Data
+            rosterData.players = data.players || [];
+            rosterData.skaterCategories = data.skater_categories || [];
+            rosterData.goalieCategories = data.goalie_categories || [];
 
-            // --- Call the render function to split and display ---
-            renderSortedRosterTables();
+            // Trigger Render
+            if (currentSubPage === 'trade-compare') renderCurrentPage();
 
-            rosterLoadingText.textContent = ''; // Clear loading text
-
-        } catch (error) {
-            console.error('Error in fetchLeagueRosterData:', error);
-            rosterLoadingText.textContent = `Error loading league rosters: ${error.message}`;
-            rosterLoadingText.classList.remove('text-gray-400');
-            rosterLoadingText.classList.add('text-red-400');
+        } catch (err) {
+            console.error("Error fetching roster data:", err);
         }
     }
 
+    function populateDropdowns(categories) {
+        categories.forEach(cat => {
+            const opt1 = document.createElement('option');
+            opt1.value = cat; opt1.textContent = cat;
+            tradeFromSelect.appendChild(opt1);
 
-    function populateCategoryDropdowns(categories) {
-        if (tradeFromSelect.options.length > 1) {
-            return;
-        }
-
-        categories.forEach(category => {
-            const option = document.createElement('option');
-            option.value = category;
-            option.textContent = category;
-            tradeFromSelect.appendChild(option);
-            tradeToSelect.appendChild(option.cloneNode(true));
+            const opt2 = document.createElement('option');
+            opt2.value = cat; opt2.textContent = cat;
+            tradeToSelect.appendChild(opt2);
         });
     }
 
-    // This is the render function for the TEAM category tables
-    function renderTable(container, data, headers, title) {
+
+    // --- Main Render Dispatcher ---
+    function renderCurrentPage() {
+        if (currentSubPage === 'trade-partners') {
+            renderPartnersPage();
+        } else if (currentSubPage === 'trade-compare') {
+            renderComparePage();
+        }
+    }
+
+    // --- Subpage 1: Trade Partners Logic ---
+    function renderPartnersPage() {
+        // Grab elements dynamically (they exist now because HTML is loaded)
+        const skaterContainer = document.getElementById('skater-table-container');
+        const goalieContainer = document.getElementById('goalie-table-container');
+
+        if (!skaterContainer || !goalieContainer) return; // HTML not ready yet
+
+        if (!categoryData.skater_stats) {
+            skaterContainer.innerHTML = '<p class="text-gray-500">Loading stats...</p>';
+            return;
+        }
+
+        const headers = ['category', 'Rank', 'Average Delta', 'Total'];
+        renderSimpleTable(skaterContainer, categoryData.skater_stats, headers);
+        renderSimpleTable(goalieContainer, categoryData.goalie_stats, headers);
+    }
+
+    function renderSimpleTable(container, data, headers) {
         if (!data || data.length === 0) {
-            container.innerHTML = `<p class="text-gray-400">No ${title.toLowerCase()} data found.</p>`;
+            container.innerHTML = `<p class="text-gray-400 p-4">No data found.</p>`;
             return;
         }
 
-        const table = document.createElement('table');
-        table.className = 'min-w-full divide-y divide-gray-700 bg-gray-800';
+        let html = `<table class="min-w-full divide-y divide-gray-700 bg-gray-800 text-sm text-white">`;
 
-        // Create Header
-        const thead = document.createElement('thead');
-        thead.className = 'bg-gray-750';
-        let headerRow = '<tr>';
-        headers.forEach(header => {
-            let thClass = 'px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider';
-            if (header === 'Rank' || header === 'Average Delta' || header === 'Total') {
-                thClass += ' text-center';
-            }
-            headerRow += `<th scope="col" class="${thClass}">${header.replace('_', ' ')}</th>`;
-        });
-        headerRow += '</tr>';
-        thead.innerHTML = headerRow;
-        table.appendChild(thead);
+        // Header
+        html += `<thead class="bg-gray-750"><tr>`;
+        headers.forEach(h => html += `<th class="px-4 py-3 text-left font-medium text-gray-300 uppercase">${h.replace('_', ' ')}</th>`);
+        html += `</tr></thead>`;
 
-        // Create Body
-        const tbody = document.createElement('tbody');
-        tbody.className = 'divide-y divide-gray-700';
+        // Body
+        html += `<tbody class="divide-y divide-gray-700">`;
+        data.forEach(row => {
+            html += `<tr class="hover:bg-gray-700">`;
+            headers.forEach(h => {
+                let val = row[h];
+                let classes = "px-4 py-3 whitespace-nowrap";
 
-        data.forEach(rowData => {
-            let row = '<tr class="hover:bg-gray-700">';
-            headers.forEach(header => {
-                let value = rowData[header];
-                let tdClass = 'px-4 py-3 whitespace-nowrap text-sm text-white';
-
-                if (header === 'category') {
-                    tdClass += ' font-medium';
-                } else {
-                    tdClass += ' text-center'; // Center-align numeric data
+                // Formatting
+                if (h === 'Rank') {
+                    const r = parseInt(val);
+                    if (r <= 3) classes += ' text-green-400 font-bold';
+                    else if (r >= 8) classes += ' text-red-400';
+                    else classes += ' text-yellow-400';
+                }
+                if (h === 'Average Delta') {
+                    const d = parseFloat(val);
+                    if (d > 0.5) classes += ' text-green-400';
+                    else if (d < -0.5) classes += ' text-red-400';
                 }
 
-                // Add color coding for Rank and Avg Delta
-                if (header === 'Rank') {
-                    const rank = parseInt(value);
-                    if (rank <= 3) tdClass += ' text-green-400';
-                    else if (rank >= 8) tdClass += ' text-red-400';
-                    else tdClass += ' text-yellow-400';
-                } else if (header === 'Average Delta') {
-                    const delta = parseFloat(value);
-                    if (delta > 0.5) tdClass += ' text-green-400';
-                    else if (delta < -0.5) tdClass += ' text-red-400';
-                }
-
-                row += `<td class="${tdClass}">${value}</td>`;
+                html += `<td class="${classes}">${val}</td>`;
             });
-            row += '</tr>';
-            tbody.innerHTML += row;
+            html += `</tr>`;
         });
-        table.appendChild(tbody);
-
-        container.innerHTML = ''; // Clear loading/previous table
-        container.appendChild(table);
+        html += `</tbody></table>`;
+        container.innerHTML = html;
     }
 
 
-    function renderSortedRosterTables() {
-        // --- MODIFIED: Get two categories ---
+    // --- Subpage 2: Trade Compare Logic ---
+    function renderComparePage() {
+        // Grab elements dynamically
+        const userSkaterContainer = document.getElementById('roster-skater-table-container');
+        const userGoalieContainer = document.getElementById('roster-goalie-table-container');
+        const oppSkaterContainer = document.getElementById('opponent-skater-table-container');
+        const oppGoalieContainer = document.getElementById('opponent-goalie-table-container');
+        const rosterLoader = document.getElementById('roster-loading');
+
+        // Section swapping elements
+        const oppSkaterSection = document.getElementById('opponent-skater-section');
+        const oppGoalieSection = document.getElementById('opponent-goalie-section');
+
+        if (!userSkaterContainer) return; // HTML not ready
+
+        if (rosterData.players.length === 0) {
+            if(rosterLoader) rosterLoader.textContent = "Loading rosters...";
+            return;
+        }
+        if(rosterLoader) rosterLoader.textContent = "";
+
+        // --- Sorting & Filtering Logic ---
         const tradeFromCategory = tradeFromSelect.value;
         const tradeToCategory = tradeToSelect.value;
 
-        // Define the two rank keys
         const tradeFromRankKey = tradeFromCategory ? `${tradeFromCategory}_cat_rank` : null;
         const tradeToRankKey = tradeToCategory ? `${tradeToCategory}_cat_rank` : null;
-        // --- END MODIFIED ---
 
-        // Ensure data is loaded
-        if (!allPlayers || allPlayers.length === 0 || !userTeamName) {
-            return;
-        }
+        // 1. Filter
+        const userPlayers = rosterData.players.filter(p => p.fantasy_team_name === userTeamName);
+        const oppPlayers = rosterData.players.filter(p => p.fantasy_team_name !== userTeamName && p.fantasy_team_name !== 'Free Agent');
 
-        // 1. Filter and Split Rosters (now filtering from league-wide allPlayers)
-        const userPlayers = allPlayers.filter(p => p.fantasy_team_name === userTeamName);
         const userSkaters = userPlayers.filter(p => !(p.eligible_positions || '').includes('G'));
         const userGoalies = userPlayers.filter(p => (p.eligible_positions || '').includes('G'));
 
-        // Filter for ALL OPPONENT TEAMS (exclude the user's team and Free Agents)
-        const oppPlayers = allPlayers.filter(p => p.fantasy_team_name !== userTeamName && p.fantasy_team_name !== 'Free Agent');
         const oppSkaters = oppPlayers.filter(p => !(p.eligible_positions || '').includes('G'));
         const oppGoalies = oppPlayers.filter(p => (p.eligible_positions || '').includes('G'));
 
-
-        // 2. Sorting Functions (DUAL SORT IMPLEMENTATION)
-        // Function for User Roster (sorts by Trade From category)
-        const sortUserRosterFn = (a, b) => {
-            if (!tradeFromRankKey) return 0;
-
-            const rankA = a[tradeFromRankKey];
-            const rankB = b[tradeFromRankKey];
-
-            // Push nulls/undefined/0 to the end (higher rank number is worse)
-            if (rankA === null || rankA === undefined || rankA === 0) return 1;
-            if (rankB === null || rankB === undefined || rankB === 0) return -1;
-
-            return rankA - rankB; // Ascending sort (1 is better than 20)
+        // 2. Sort
+        const sortFn = (key) => (a, b) => {
+            if (!key) return 0;
+            const rA = a[key], rB = b[key];
+            // Push nulls to end
+            if (rA == null || rA === 0) return 1;
+            if (rB == null || rB === 0) return -1;
+            return rA - rB; // Ascending (Rank 1 is best)
         };
 
-        // Function for Opponent Roster (sorts by Trade To category)
-        const sortOpponentRosterFn = (a, b) => {
-            if (!tradeToRankKey) return 0;
+        userSkaters.sort(sortFn(tradeFromRankKey));
+        userGoalies.sort(sortFn(tradeFromRankKey));
 
-            const rankA = a[tradeToRankKey];
-            const rankB = b[tradeToRankKey];
+        oppSkaters.sort(sortFn(tradeToRankKey));
+        oppGoalies.sort(sortFn(tradeToRankKey));
 
-            // Push nulls/undefined/0 to the end (higher rank number is worse)
-            if (rankA === null || rankA === undefined || rankA === 0) return 1;
-            if (rankB === null || rankB === undefined || rankB === 0) return -1;
+        // 3. Render Tables
+        renderRosterTable(userSkaterContainer, userSkaters, rosterData.skaterCategories, false);
+        renderRosterTable(userGoalieContainer, userGoalies, rosterData.goalieCategories, false);
+        renderRosterTable(oppSkaterContainer, oppSkaters, rosterData.skaterCategories, true); // True for show Team Name
+        renderRosterTable(oppGoalieContainer, oppGoalies, rosterData.goalieCategories, true);
 
-            return rankA - rankB; // Ascending sort (1 is better than 20)
-        };
-
-        // Apply Sort
-        userSkaters.sort(sortUserRosterFn);
-        userGoalies.sort(sortUserRosterFn);
-        oppSkaters.sort(sortOpponentRosterFn);
-        oppGoalies.sort(sortOpponentRosterFn);
-        // --- END DUEL SORT IMPLEMENTATION ---
-
-
-        // 3. Table Swapping Logic (uses Trade To Category)
-        const isGoalieCategory = goalieCategories.includes(tradeToCategory);
-
-        const userSkaterContainer = document.getElementById('roster-skater-table-container');
-        const userGoalieContainer = document.getElementById('roster-goalie-table-container');
-
-        // Render User Roster (No swapping needed for the fixed containers)
-        renderRosterTable(userSkaterContainer, userSkaters, skaterCategories, 'Team Skaters', false);
-        renderRosterTable(userGoalieContainer, userGoalies, goalieCategories, 'Team Goalies', false);
-
-
-        // 4. Render Opponent Roster and Swap Sections
-        renderRosterTable(opponentSkaterTableContainer, oppSkaters, skaterCategories, 'Opponent Skaters', true);
-        renderRosterTable(opponentGoalieTableContainer, oppGoalies, goalieCategories, 'Opponent Goalies', true);
-
-        // Swap the visual order of the sections
-        if (isGoalieCategory) {
-            opponentGoalieSection.style.order = 1; // Move goalie section to the top
-            opponentSkaterSection.style.order = 2; // Move skater section below
-        } else {
-            opponentSkaterSection.style.order = 1;
-            opponentGoalieSection.style.order = 2;
+        // 4. Swap Sections (Move Goalies to top if Trade To is a goalie stat)
+        const isGoalieStat = rosterData.goalieCategories.includes(tradeToCategory);
+        if (oppSkaterSection && oppGoalieSection) {
+            if (isGoalieStat) {
+                oppGoalieSection.style.order = 1;
+                oppSkaterSection.style.order = 2;
+            } else {
+                oppSkaterSection.style.order = 1;
+                oppGoalieSection.style.order = 2;
+            }
         }
-
     }
 
-    function renderRosterTable(container, players, categories, title, showFantasyTeamColumn = false) {
+    function renderRosterTable(container, players, categories, showTeamColumn) {
         if (!players || players.length === 0) {
-            container.innerHTML = `<p class="text-gray-400">No ${title.toLowerCase()} found on roster.</p>`;
+            container.innerHTML = `<p class="text-gray-400 p-4">No players found.</p>`;
             return;
         }
 
-        const headers = ['Player', 'Team', 'Pos'];
-        if (showFantasyTeamColumn) {
-            // Insert Fantasy Team column after Player Name (index 1)
-            headers.splice(1, 0, 'Fantasy Team');
-        }
+        let html = `<div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-700 text-sm">`;
 
-        let tableHtml = `
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-700">
-                    <thead class="bg-gray-700/50">
-                        <tr>
-                            ${headers.map(h => `<th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">${h}</th>`).join('')}
-                            ${categories.map(cat => `<th scope="col" class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider" title="${cat}">${cat}</th>`).join('')}
-                        </tr>
-                    </thead>
-                    <tbody class="bg-gray-800 divide-y divide-gray-700">
-        `;
+        // Headers
+        html += `<thead class="bg-gray-700/50"><tr>`;
+        html += `<th class="px-2 py-1 text-left font-bold text-gray-300">Player</th>`;
+        if (showTeamColumn) html += `<th class="px-2 py-1 text-left font-bold text-gray-300">Team</th>`;
+        html += `<th class="px-2 py-1 text-left font-bold text-gray-300">NHL Team</th>`;
+        html += `<th class="px-2 py-1 text-left font-bold text-gray-300">Pos</th>`;
 
-        players.forEach(player => {
-            tableHtml += `<tr class="hover:bg-gray-700/50">
-                <td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${player.player_name}</td>
+        categories.forEach(cat => {
+            html += `<th class="px-2 py-1 text-center font-bold text-gray-300" title="${cat}">${cat}</th>`;
+        });
+        html += `</tr></thead>`;
 
-                ${showFantasyTeamColumn ? `<td class="px-2 py-1 whitespace-nowrap text-sm text-yellow-300">${player.fantasy_team_name}</td>` : ''}
-
-                <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.player_team}</td>
-                <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.eligible_positions}</td>
-            `;
+        // Body
+        html += `<tbody class="bg-gray-800 divide-y divide-gray-700">`;
+        players.forEach(p => {
+            html += `<tr class="hover:bg-gray-700/50">`;
+            html += `<td class="px-2 py-1 whitespace-nowrap font-medium text-gray-300">${p.player_name}</td>`;
+            if (showTeamColumn) html += `<td class="px-2 py-1 whitespace-nowrap text-yellow-300">${p.fantasy_team_name}</td>`;
+            // FIX: Using p.team (from server alias)
+            html += `<td class="px-2 py-1 whitespace-nowrap text-gray-300">${p.team}</td>`;
+            html += `<td class="px-2 py-1 whitespace-nowrap text-gray-300">${p.eligible_positions}</td>`;
 
             categories.forEach(cat => {
-                const rank_key = cat + '_cat_rank';
-                let rank = player[rank_key];
-                let rankDisplay = (rank !== null && rank !== undefined) ? Math.round(rank) : '-';
+                const rank = p[cat + '_cat_rank'];
+                const display = (rank !== null && rank !== undefined) ? Math.round(rank) : '-';
                 const color = getHeatmapColor(rank);
-
-                const textColor = 'text-gray-600';
-
-                tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-center font-semibold ${textColor}" style="background-color: ${color};" title="${cat}: ${rankDisplay}">${rankDisplay}</td>`;
+                html += `<td class="px-2 py-1 text-center font-semibold text-gray-600" style="background-color: ${color};">${display}</td>`;
             });
-
-            tableHtml += `</tr>`;
+            html += `</tr>`;
         });
+        html += `</tbody></table></div>`;
 
-        tableHtml += `</tbody></table></div>`;
-        container.innerHTML = tableHtml;
+        container.innerHTML = html;
     }
 
-
-    // Run the initialization function
-    init().catch(err => {
-        console.error("Failed to initialize Trade Helper page:", err);
-        if (loadingText) {
-            loadingText.textContent = 'A critical error occurred while loading the page.';
-            loadingText.classList.add('text-red-400');
-        }
-        if (rosterLoadingText) {
-            rosterLoadingText.textContent = 'A critical error occurred while loading the roster.';
-            rosterLoadingText.classList.add('text-red-400');
-        }
-    });
+    // Start
+    init().catch(e => console.error("Init failed", e));
 
 })();
