@@ -2386,12 +2386,11 @@ def get_trade_helper_roster_data():
     Fetches the roster for a specific team, along with all category ranks
     for each player. Used by the Trade Helper page.
     """
-    sourcing = data.get('sourcing', 'projected')
-    stat_table = get_stat_source_table(sourcing)
     league_id = session.get('league_id')
     data = request.get_json()
     team_name = data.get('team_name')
-
+    sourcing = data.get('sourcing', 'projected')
+    stat_table = get_stat_source_table(sourcing)
     if not team_name:
         return jsonify({'error': 'Team name is required.'}), 400
 
