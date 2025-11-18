@@ -363,6 +363,129 @@
         container.innerHTML = html;
     }
 
+    function renderPartnersPage() {
+        const skaterContainer = document.getElementById('skater-table-container');
+        const goalieContainer = document.getElementById('goalie-table-container');
+        const recContainer = document.getElementById('trade-recommendations-container');
+
+        if (!skaterContainer || !goalieContainer) return;
+
+        if (!categoryData.skater_stats) {
+            skaterContainer.innerHTML = '<p class="text-gray-500">Loading stats...</p>';
+            return;
+        }
+
+        // 1. Render Analysis Tables (Existing)
+        const headers = ['category', 'Rank', 'Average Delta', 'Total'];
+        renderSimpleTable(skaterContainer, categoryData.skater_stats, headers);
+        renderSimpleTable(goalieContainer, categoryData.goalie_stats, headers);
+
+        // 2. Generate and Render Recommendations (New)
+        if (recContainer && categoryData.league_rank_matrix) {
+            const matches = findTradeMatches(categoryData.league_rank_matrix, categoryData.total_teams);
+            renderTradeMatches(recContainer, matches);
+        }
+    }
+
+
+    function findTradeMatches(matrix, totalTeams) {
+        const myRanks = matrix[userTeamName];
+        if (!myRanks) return [];
+
+        // Define Thresholds (Top 1/3 and Bottom 1/3)
+        // e.g. 12 teams -> Strength <= 4, Weakness >= 8
+        const strengthThreshold = Math.ceil(totalTeams / 3);
+        const weaknessThreshold = totalTeams - Math.floor(totalTeams / 3) + 1;
+
+        let matches = [];
+
+        // Iterate over every other team
+        for (const [teamName, teamRanks] of Object.entries(matrix)) {
+            if (teamName === userTeamName) continue;
+
+            let youGive = []; // I am strong, they are weak
+            let youGet = [];  // I am weak, they are strong
+
+            // Check every category
+            for (const cat of Object.keys(myRanks)) {
+                const myRank = myRanks[cat];
+                const theirRank = teamRanks[cat];
+
+                // Logic: I am Top Tier, They are Bottom Tier
+                if (myRank <= strengthThreshold && theirRank >= weaknessThreshold) {
+                    youGive.push(cat);
+                }
+
+                // Logic: I am Bottom Tier, They are Top Tier
+                if (myRank >= weaknessThreshold && theirRank <= strengthThreshold) {
+                    youGet.push(cat);
+                }
+            }
+
+            // Consolidate SA/SV logic
+            // If both SA and SV are present, replace them with "Goalie Vol"
+            const handleGoalieVol = (arr) => {
+                if (arr.includes('SA') && arr.includes('SV')) {
+                    return arr.filter(c => c !== 'SA' && c !== 'SV').concat(['Goalie Vol (SA/SV)']);
+                }
+                return arr;
+            };
+
+            youGive = handleGoalieVol(youGive);
+            youGet = handleGoalieVol(youGet);
+
+            // Only add if there is a mutual benefit (Give AND Get)
+            // Or if there is a massive one-sided fit (optional, sticking to mutual for now)
+            if (youGive.length > 0 && youGet.length > 0) {
+                matches.push({
+                    team: teamName,
+                    gives: youGive,
+                    gets: youGet,
+                    score: youGive.length + youGet.length // Simple sorting score
+                });
+            }
+        }
+
+        // Sort by best fit (most categories involved)
+        matches.sort((a, b) => b.score - a.score);
+
+        return matches;
+    }
+
+    function renderTradeMatches(container, matches) {
+        if (matches.length === 0) {
+            container.innerHTML = `
+                <div class="col-span-full text-center p-4 bg-gray-700/50 rounded-lg">
+                    <p class="text-gray-300">No perfect mutual matches found based on current rankings.</p>
+                    <p class="text-xs text-gray-500">Try looking for teams that are middling in categories you need.</p>
+                </div>`;
+            return;
+        }
+
+        let html = '';
+        matches.forEach(m => {
+            html += `
+            <div class="bg-gray-700/40 border border-gray-600 rounded-lg p-4 hover:bg-gray-700/70 transition duration-200">
+                <h4 class="text-lg font-bold text-white mb-3 border-b border-gray-600 pb-2">${m.team}</h4>
+
+                <div class="mb-3">
+                    <p class="text-xs uppercase text-gray-400 font-bold mb-1">You Give (Surplus):</p>
+                    <div class="flex flex-wrap gap-2">
+                        ${m.gives.map(cat => `<span class="px-2 py-1 text-xs font-bold rounded bg-green-900 text-green-200 border border-green-700">${cat}</span>`).join('')}
+                    </div>
+                </div>
+
+                <div>
+                    <p class="text-xs uppercase text-gray-400 font-bold mb-1">You Get (Need):</p>
+                    <div class="flex flex-wrap gap-2">
+                        ${m.gets.map(cat => `<span class="px-2 py-1 text-xs font-bold rounded bg-blue-900 text-blue-200 border border-blue-700">${cat}</span>`).join('')}
+                    </div>
+                </div>
+            </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
     // Start
     init().catch(e => console.error("Init failed", e));
 
