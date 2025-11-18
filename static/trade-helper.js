@@ -8,10 +8,15 @@
     const goalieTableContainer = document.getElementById('goalie-table-container');
     const tradeFromSelect = document.getElementById('trade-from-select');
     const tradeToSelect = document.getElementById('trade-to-select');
-    // --- NEW: Roster table elements ---
+    // --- Roster table elements ---
     const rosterLoadingText = document.getElementById('roster-loading');
     const rosterSkaterTableContainer = document.getElementById('roster-skater-table-container');
     const rosterGoalieTableContainer = document.getElementById('roster-goalie-table-container');
+    // --- Opponent Roster ---
+    const opponentSkaterTableContainer = document.getElementById('opponent-skater-table-container');
+    const opponentGoalieTableContainer = document.getElementById('opponent-goalie-table-container');
+    const opponentSkaterSection = document.getElementById('opponent-skater-section');
+    const opponentGoalieSection = document.getElementById('opponent-goalie-section');
 
 
     // --- Global elements from home.html ---
@@ -58,6 +63,7 @@
         });
 
         tradeFromSelect.addEventListener('change', renderSortedRosterTables);
+        tradeToSelect.addEventListener('change', renderSortedRosterTables);
 
         // Initial data load
         await Promise.all([
@@ -69,6 +75,7 @@
     async function fetchTradeHelperData() {
         const selectedTeam = localStorage.getItem('selectedTeam');
         const selectedWeek = 'all';
+        userTeamName = selectedTeam;
 
         if (!selectedTeam) {
             loadingText.textContent = "Please select your team from the dropdown above.";
@@ -136,12 +143,14 @@
             rosterLoadingText.classList.add('text-yellow-400');
             return;
         }
-
+        userTeamName = selectedTeam;
         rosterLoadingText.textContent = `Loading roster for ${selectedTeam}...`;
         rosterLoadingText.classList.add('text-gray-400');
         rosterLoadingText.classList.remove('text-yellow-400', 'text-red-400', 'text-green-400');
         rosterSkaterTableContainer.innerHTML = '';
         rosterGoalieTableContainer.innerHTML = '';
+        opponentSkaterTableContainer.innerHTML = '';
+        opponentGoalieTableContainer.innerHTML = '';
         const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
         try {
             const response = await fetch('/api/trade_helper_roster_data', {
@@ -255,41 +264,77 @@
 
 
     function renderSortedRosterTables() {
-            const selectedCategory = tradeFromSelect.value;
-            const rankKey = `${selectedCategory}_cat_rank`;
+        const selectedCategory = tradeToSelect.value;
+        const rankKey = `${selectedCategory}_cat_rank`;
 
-            // 1. Filter players from the stored list
-            const skaters = allPlayers.filter(p => !(p.eligible_positions || '').includes('G'));
-            const goalies = allPlayers.filter(p => (p.eligible_positions || '').includes('G'));
+        // 1. Filter and Split Rosters
+        const userSkaters = allPlayers.filter(p => p.fantasy_team_name === userTeamName && !(p.eligible_positions || '').includes('G'));
+        const userGoalies = allPlayers.filter(p => p.fantasy_team_name === userTeamName && (p.eligible_positions || '').includes('G'));
 
-            // 2. Sort players IF a category is selected
-            if (selectedCategory) {
-                const sortFn = (a, b) => {
-                    const rankA = a[rankKey];
-                    const rankB = b[rankKey];
+        // Use a set to quickly determine which players are NOT on the user's team.
+        const oppSkaters = allPlayers.filter(p => p.fantasy_team_name !== userTeamName && !(p.eligible_positions || '').includes('G') && p.fantasy_team_name !== 'Free Agent');
+        const oppGoalies = allPlayers.filter(p => p.fantasy_team_name !== userTeamName && (p.eligible_positions || '').includes('G') && p.fantasy_team_name !== 'Free Agent');
 
-                    // Handle nulls/undefined - push them to the end (higher rank is worse)
-                    if (rankA === null || rankA === undefined) return 1;
-                    if (rankB === null || rankB === undefined) return -1;
 
-                    // Normal numeric sort (lowest to highest)
-                    return rankA - rankB;
-                };
+        // 2. Sorting Function (used for all tables)
+        const sortRosterFn = (a, b) => {
+            if (!selectedCategory) return 0;
 
-                skaters.sort(sortFn);
-                goalies.sort(sortFn);
-            }
-            // If no category is selected, they remain in their default (unsorted) order.
+            const rankA = a[rankKey];
+            const rankB = b[rankKey];
 
-            // 3. Render tables
-            renderRosterTable(rosterSkaterTableContainer, skaters, skaterCategories, 'Skaters');
-            renderRosterTable(rosterGoalieTableContainer, goalies, goalieCategories, 'Goalies');
+            // Push nulls/undefined/0 to the end (higher rank number is worse)
+            if (rankA === null || rankA === undefined || rankA === 0) return 1;
+            if (rankB === null || rankB === undefined || rankB === 0) return -1;
+
+            return rankA - rankB; // Ascending sort (1 is better than 20)
+        };
+
+        // Apply Sort
+        userSkaters.sort(sortRosterFn);
+        userGoalies.sort(sortRosterFn);
+        oppSkaters.sort(sortRosterFn);
+        oppGoalies.sort(sortRosterFn);
+
+
+        // 3. Table Swapping Logic
+        const isGoalieCategory = goalieCategories.includes(selectedCategory);
+
+        const userSkaterContainer = document.getElementById('roster-skater-table-container');
+        const userGoalieContainer = document.getElementById('roster-goalie-table-container');
+
+        // Render User Roster (No swapping needed for the fixed containers)
+        renderRosterTable(userSkaterContainer, userSkaters, skaterCategories, 'Team Skaters', false);
+        renderRosterTable(userGoalieContainer, userGoalies, goalieCategories, 'Team Goalies', false);
+
+
+        // 4. Render Opponent Roster and Swap Sections
+
+        // Render content into the fixed opponent containers
+        renderRosterTable(opponentSkaterTableContainer, oppSkaters, skaterCategories, 'Opponent Skaters', true);
+        renderRosterTable(opponentGoalieTableContainer, oppGoalies, goalieCategories, 'Opponent Goalies', true);
+
+        // Swap the visual order of the sections
+        if (isGoalieCategory) {
+            opponentGoalieSection.style.order = 1; // Move goalie section to the top
+            opponentSkaterSection.style.order = 2; // Move skater section below
+        } else {
+            opponentSkaterSection.style.order = 1;
+            opponentGoalieSection.style.order = 2;
         }
 
-    function renderRosterTable(container, players, categories, title) {
+    }
+
+    function renderRosterTable(container, players, categories, title, showFantasyTeamColumn = false) {
         if (!players || players.length === 0) {
             container.innerHTML = `<p class="text-gray-400">No ${title.toLowerCase()} found on roster.</p>`;
             return;
+        }
+
+        const headers = ['Player', 'Team', 'Pos'];
+        if (showFantasyTeamColumn) {
+            // Insert Fantasy Team column after Player Name (index 1)
+            headers.splice(1, 0, 'Fantasy Team');
         }
 
         let tableHtml = `
@@ -297,21 +342,20 @@
                 <table class="min-w-full divide-y divide-gray-700">
                     <thead class="bg-gray-700/50">
                         <tr>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Player</th>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Team</th>
-                            <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Pos</th>
+                            ${headers.map(h => `<th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">${h}</th>`).join('')}
+                            ${categories.map(cat => `<th scope="col" class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider" title="${cat}">${cat}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody class="bg-gray-800 divide-y divide-gray-700">
         `;
-
-        categories.forEach(cat => {
-            tableHtml += `<th scope="col" class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider" title="${cat}">${cat}</th>`;
-        });
-
-        tableHtml += `</tr></thead><tbody class="bg-gray-800 divide-y divide-gray-700">`;
 
         players.forEach(player => {
             tableHtml += `<tr class="hover:bg-gray-700/50">
                 <td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${player.player_name}</td>
-                <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.team}</td>
+
+                ${showFantasyTeamColumn ? `<td class="px-2 py-1 whitespace-nowrap text-sm text-yellow-300">${player.fantasy_team_name}</td>` : ''}
+
+                <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.player_team}</td>
                 <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.eligible_positions}</td>
             `;
 
@@ -321,7 +365,6 @@
                 let rankDisplay = (rank !== null && rank !== undefined) ? Math.round(rank) : '-';
                 const color = getHeatmapColor(rank);
 
-                // --- MODIFIED: Changed text color to match lineups.js ---
                 const textColor = 'text-gray-600';
 
                 tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-center font-semibold ${textColor}" style="background-color: ${color};" title="${cat}: ${rankDisplay}">${rankDisplay}</td>`;

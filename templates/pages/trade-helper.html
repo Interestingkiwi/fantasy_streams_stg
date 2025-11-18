@@ -45,20 +45,51 @@
                 <div id="roster-skater-table-container" class="overflow-x-auto rounded-lg shadow-md">
                     </div>
             </div>
-            <div>
-                <h3 class="text-xl font-semibold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400">Team Goalies</h3>
-                <div id="roster-goalie-table-container" class="overflow-x-auto rounded-lg shadow-md">
-                    </div>
-            </div>
+
         </div>
 
-        <div class="md:col-span-1">
+        <div class="md:col-span-3 space-y-8">
+            <p id="roster-loading" class="text-gray-400"></p>
+            <div>
+              <h3 class="text-xl font-semibold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400">Team Goalies</h3>
+              <div id="roster-goalie-table-container" class="overflow-x-auto rounded-lg shadow-md">
+                  </div>
             </div>
 
         <div class="md:col-span-1">
             </div>
 
     </div>
+      <div class="p-4 text-white">
+      <div class="grid grid-cols-1 md:grid-cols-6 gap-8">
+
+          <div class="md:col-span-3 space-y-8">
+              <p id="roster-loading" class="text-gray-400"></p>
+
+              <div id="user-roster-containers">
+                  <h3 class="text-xl font-semibold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400">Team Skaters</h3>
+                  <div id="roster-skater-table-container" class="overflow-x-auto rounded-lg shadow-md"></div>
+
+                  <h3 class="text-xl font-semibold mb-3 mt-6 text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400">Team Goalies</h3>
+                  <div id="roster-goalie-table-container" class="overflow-x-auto rounded-lg shadow-md"></div>
+              </div>
+          </div>
+
+          <div class="md:col-span-3 space-y-8">
+              <h2 class="text-2xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-red-500">Opponent Rosters</h2>
+
+              <div id="opponent-skater-section">
+                  <h3 class="text-xl font-semibold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-red-400">Opponent Skaters</h3>
+                  <div id="opponent-skater-table-container" class="overflow-x-auto rounded-lg shadow-md"></div>
+              </div>
+
+              <div id="opponent-goalie-section">
+                  <h3 class="text-xl font-semibold mb-3 mt-6 text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-red-400">Opponent Goalies</h3>
+                  <div id="opponent-goalie-table-container" class="overflow-x-auto rounded-lg shadow-md"></div>
+              </div>
+          </div>
+      </div>
+  </div>
 </div>
 
 <script src="{{ url_for('static', filename='trade-helper.js') }}"></script>
