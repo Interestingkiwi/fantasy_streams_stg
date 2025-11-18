@@ -142,12 +142,12 @@
         rosterLoadingText.classList.remove('text-yellow-400', 'text-red-400', 'text-green-400');
         rosterSkaterTableContainer.innerHTML = '';
         rosterGoalieTableContainer.innerHTML = '';
-
+        const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
         try {
             const response = await fetch('/api/trade_helper_roster_data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ team_name: selectedTeam })
+                body: JSON.stringify({ team_name: selectedTeam, sourcing: selectedSourcing })
             });
 
             if (!response.ok) {
