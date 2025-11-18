@@ -2493,7 +2493,6 @@ def get_trade_helper_league_roster_data():
         all_scoring_categories = skater_categories + goalie_categories
 
         # 3. Get all players rostered in the league
-        # Joining rostered_players (rp), players (p), and rosters_tall (r)
         cursor.execute("""
             SELECT
                 p.player_id, p.player_name, p.player_team as team,
@@ -2510,7 +2509,7 @@ def get_trade_helper_league_roster_data():
         for player in all_players:
             player['fantasy_team_name'] = teams_map.get(str(player['fantasy_team_id']), 'Unknown Team')
 
-        # 5. Get Cat Ranks for these players (Remaining steps are similar to your original logic)
+        # 5. Get Cat Ranks for these players
         cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
         valid_normalized_names = [p.get('player_name_normalized') for p in all_players if p.get('player_name_normalized')]
 
@@ -2533,10 +2532,8 @@ def get_trade_helper_league_roster_data():
                     rank_value = p_stats.get(rank_key)
                     player[rank_key] = round(rank_value, 2) if rank_value is not None else None
             else:
-                 # Ensure ranks are set to None if no stats are found
                  for cat in all_scoring_categories:
                     player[f"{cat}_cat_rank"] = None
-
 
         return jsonify({
             'players': all_players,
@@ -2551,7 +2548,7 @@ def get_trade_helper_league_roster_data():
         if conn:
             conn.close()
 
-            
+
 
 @app.route('/api/schedules_page_data')
 def schedules_page_data():
