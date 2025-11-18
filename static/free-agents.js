@@ -123,6 +123,7 @@
         try {
             const weekSelect = document.getElementById('week-select');
             const selectedWeek = weekSelect ? weekSelect.value : null;
+            const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
             const state = {
                 allWaiverPlayers,
                 allFreeAgents,
@@ -142,7 +143,8 @@
                 selectedTeam: document.getElementById('your-team-select')?.value,
                 searchTerm: playerSearchInput.value,
                 timestamp: Date.now(),
-                selectedWeek: selectedWeek
+                selectedWeek: selectedWeek,
+                sourcing: selectedSourcing
             };
             localStorage.setItem(CACHE_KEY, JSON.stringify(state));
         } catch (error) {
@@ -1037,6 +1039,28 @@
         const cachedState = loadStateFromCache();
         if (cachedState) {
             console.log("Loading Free Agents page from cache.");
+            const currentSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
+            const cachedSourcing = cachedState.sourcing || 'projected'; // Default to 'projected' for old caches
+
+            if (cachedSourcing !== currentSourcing) {
+                const modal = document.getElementById('help-modal');
+                const modalTitle = document.getElementById('modal-title');
+                const modalText = document.getElementById('modal-text');
+
+                if (modal && modalTitle && modalText) {
+                    // Helper for readable labels
+                    const getLabel = (s) => s === 'todate' ? 'Season To Date' : s === 'combined' ? 'Combined' : 'Projected ROS';
+
+                    modalTitle.textContent = "Data Source Mismatch";
+                    modalText.innerHTML = `
+                        The data currently displayed is using <b>${getLabel(cachedSourcing)}</b> stats,
+                        but you have selected <b>${getLabel(currentSourcing)}</b>.
+                        <br><br>
+                        To update the table to match your selection (and clear current simulations), please click the <b>"Reset Simulations"</b> button.
+                    `;
+                    modal.style.display = 'block';
+                }
+            }
             allWaiverPlayers = cachedState.allWaiverPlayers;
             allFreeAgents = cachedState.allFreeAgents;
             allScoringCategories = cachedState.allScoringCategories;
