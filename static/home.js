@@ -85,6 +85,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // --- NEW: Add event listener for the new dropdown ---
             document.getElementById('stat-sourcing-select').addEventListener('change', (e) => {
                 localStorage.setItem('selectedStatSourcing', e.target.value);
+
+                // --- MODIFIED: Trigger reload of current page ---
+                // Find the active tab (the one with the blue background class) and click it
+                const activeTab = document.querySelector('.toggle-btn.bg-blue-600');
+                if (activeTab) {
+                    activeTab.click();
+                }
             });
 
         } catch (error) {
