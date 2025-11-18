@@ -86,11 +86,22 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('stat-sourcing-select').addEventListener('change', (e) => {
                 localStorage.setItem('selectedStatSourcing', e.target.value);
 
-                // --- MODIFIED: Trigger reload of current page ---
-                // Find the active tab (the one with the blue background class) and click it
-                const activeTab = document.querySelector('.toggle-btn.bg-blue-600');
-                if (activeTab) {
-                    activeTab.click();
+                // --- MODIFIED: Smart Refresh Logic ---
+                // 1. Check if we are on the Free Agents page by looking for its unique button
+                const recalculateBtn = document.getElementById('recalculate-button');
+
+                if (recalculateBtn) {
+                    // We are on Free Agents.
+                    // Click the recalculate button to fetch new data WITHOUT reloading the page logic.
+                    // This preserves the `simulatedMoves` variable in free-agents.js memory.
+                    recalculateBtn.click();
+                } else {
+                    // We are on any other page.
+                    // Find the active tab (the one with the blue background class) and click it to reload the page fragment.
+                    const activeTab = document.querySelector('.toggle-btn.bg-blue-600');
+                    if (activeTab) {
+                        activeTab.click();
+                    }
                 }
             });
 

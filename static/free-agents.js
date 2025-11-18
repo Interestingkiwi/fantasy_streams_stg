@@ -174,7 +174,14 @@
                 localStorage.removeItem(CACHE_KEY);
                 return null;
             }
+            const currentSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
+            const cachedSourcing = cachedState.sourcing || 'projected'; // Default for old caches
 
+            if (cachedSourcing !== currentSourcing) {
+                console.log("Cache source mismatch (" + cachedSourcing + " vs " + currentSourcing + "). Discarding cache.");
+                localStorage.removeItem(CACHE_KEY);
+                return null;
+            }
             skaterCategories = cachedState.skaterCategories || [];
             goalieCategories = cachedState.goalieCategories || [];
             const defaultSortConfig = {
@@ -1039,28 +1046,6 @@
         const cachedState = loadStateFromCache();
         if (cachedState) {
             console.log("Loading Free Agents page from cache.");
-            const currentSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
-            const cachedSourcing = cachedState.sourcing || 'projected'; // Default to 'projected' for old caches
-
-            if (cachedSourcing !== currentSourcing) {
-                const modal = document.getElementById('help-modal');
-                const modalTitle = document.getElementById('modal-title');
-                const modalText = document.getElementById('modal-text');
-
-                if (modal && modalTitle && modalText) {
-                    // Helper for readable labels
-                    const getLabel = (s) => s === 'todate' ? 'Season To Date' : s === 'combined' ? 'Combined' : 'Projected ROS';
-
-                    modalTitle.textContent = "Data Source Mismatch";
-                    modalText.innerHTML = `
-                        The data currently displayed is using <b>${getLabel(cachedSourcing)}</b> stats,
-                        but you have selected <b>${getLabel(currentSourcing)}</b>.
-                        <br><br>
-                        To update the table to match your selection (and clear current simulations), please click the <b>"Reset Simulations"</b> button.
-                    `;
-                    modal.style.display = 'block';
-                }
-            }
             allWaiverPlayers = cachedState.allWaiverPlayers;
             allFreeAgents = cachedState.allFreeAgents;
             allScoringCategories = cachedState.allScoringCategories;
@@ -1106,4 +1091,3 @@
     }
 
     init();
-})();
