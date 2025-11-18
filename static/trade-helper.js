@@ -26,7 +26,7 @@
     let allPlayers = [];
     let skaterCategories = [];
     let goalieCategories = [];
-
+    let userTeamName = '';
 
     // --- NEW: Heatmap function (from lineups.js) ---
     function getHeatmapColor(rank) {
@@ -59,7 +59,7 @@
         yourTeamSelect.addEventListener('change', () => {
             // Fetch both sets of data when team changes
             fetchTradeHelperData();
-            fetchRosterData();
+            fetchLeagueRosterData();
         });
 
         tradeFromSelect.addEventListener('change', renderSortedRosterTables);
@@ -68,7 +68,7 @@
         // Initial data load
         await Promise.all([
             fetchTradeHelperData(),
-            fetchRosterData()
+            fetchLeagueRosterData()
         ]);
     }
 
@@ -135,54 +135,57 @@
     }
 
     // --- NEW: Function to fetch roster data ---
-    async function fetchRosterData() {
-        const selectedTeam = localStorage.getItem('selectedTeam');
+    async function fetchLeagueRosterData() {
+    const selectedTeam = localStorage.getItem('selectedTeam');
+    userTeamName = selectedTeam; // Set the global variable
 
-        if (!selectedTeam) {
-            rosterLoadingText.textContent = "Select a team to see roster.";
-            rosterLoadingText.classList.add('text-yellow-400');
-            return;
-        }
-        userTeamName = selectedTeam;
-        rosterLoadingText.textContent = `Loading roster for ${selectedTeam}...`;
-        rosterLoadingText.classList.add('text-gray-400');
-        rosterLoadingText.classList.remove('text-yellow-400', 'text-red-400', 'text-green-400');
-        rosterSkaterTableContainer.innerHTML = '';
-        rosterGoalieTableContainer.innerHTML = '';
-        opponentSkaterTableContainer.innerHTML = '';
-        opponentGoalieTableContainer.innerHTML = '';
-        const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
-        try {
-            const response = await fetch('/api/trade_helper_roster_data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ team_name: selectedTeam, sourcing: selectedSourcing })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to fetch roster data.');
-            }
-
-            const data = await response.json();
-
-            // --- MODIFIED: Store data in IIFE-scoped variables ---
-            allPlayers = data.players || [];
-            skaterCategories = data.skater_categories || [];
-            goalieCategories = data.goalie_categories || [];
-
-            // --- MODIFIED: Call the new render function ---
-            renderSortedRosterTables(); // This will do the initial (unsorted) render
-
-            rosterLoadingText.textContent = ''; // Clear loading text
-
-        } catch (error) {
-            console.error('Error in fetchRosterData:', error);
-            rosterLoadingText.textContent = `Error: ${error.message}`;
-            rosterLoadingText.classList.remove('text-gray-400');
-            rosterLoadingText.classList.add('text-red-400');
-        }
+    if (!selectedTeam) {
+        rosterLoadingText.textContent = "Select a team to see roster.";
+        rosterLoadingText.classList.add('text-yellow-400');
+        return;
     }
+
+    rosterLoadingText.textContent = `Loading ALL league rosters and ranks...`;
+    rosterLoadingText.classList.add('text-gray-400');
+    rosterLoadingText.classList.remove('text-yellow-400', 'text-red-400', 'text-green-400');
+    rosterSkaterTableContainer.innerHTML = '';
+    rosterGoalieTableContainer.innerHTML = '';
+    opponentSkaterTableContainer.innerHTML = '';
+    opponentGoalieTableContainer.innerHTML = '';
+
+    const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
+    try {
+        // --- MODIFIED: New API endpoint ---
+        const response = await fetch('/api/trade_helper_league_roster_data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourcing: selectedSourcing }) // Team name no longer required in body
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch league roster data.');
+        }
+
+        const data = await response.json();
+
+        // --- Store ALL data in IIFE-scoped variables ---
+        allPlayers = data.players || [];
+        skaterCategories = data.skater_categories || [];
+        goalieCategories = data.goalie_categories || [];
+
+        // --- Call the render function to split and display ---
+        renderSortedRosterTables();
+
+        rosterLoadingText.textContent = ''; // Clear loading text
+
+    } catch (error) {
+        console.error('Error in fetchLeagueRosterData:', error);
+        rosterLoadingText.textContent = `Error loading league rosters: ${error.message}`;
+        rosterLoadingText.classList.remove('text-gray-400');
+        rosterLoadingText.classList.add('text-red-400');
+    }
+}
 
     function populateCategoryDropdowns(categories) {
         if (tradeFromSelect.options.length > 1) {
@@ -264,66 +267,72 @@
 
 
     function renderSortedRosterTables() {
-        const selectedCategory = tradeToSelect.value;
-        const rankKey = `${selectedCategory}_cat_rank`;
-
-        // 1. Filter and Split Rosters
-        const userSkaters = allPlayers.filter(p => p.fantasy_team_name === userTeamName && !(p.eligible_positions || '').includes('G'));
-        const userGoalies = allPlayers.filter(p => p.fantasy_team_name === userTeamName && (p.eligible_positions || '').includes('G'));
-
-        // Use a set to quickly determine which players are NOT on the user's team.
-        const oppSkaters = allPlayers.filter(p => p.fantasy_team_name !== userTeamName && !(p.eligible_positions || '').includes('G') && p.fantasy_team_name !== 'Free Agent');
-        const oppGoalies = allPlayers.filter(p => p.fantasy_team_name !== userTeamName && (p.eligible_positions || '').includes('G') && p.fantasy_team_name !== 'Free Agent');
-
-
-        // 2. Sorting Function (used for all tables)
-        const sortRosterFn = (a, b) => {
-            if (!selectedCategory) return 0;
-
-            const rankA = a[rankKey];
-            const rankB = b[rankKey];
-
-            // Push nulls/undefined/0 to the end (higher rank number is worse)
-            if (rankA === null || rankA === undefined || rankA === 0) return 1;
-            if (rankB === null || rankB === undefined || rankB === 0) return -1;
-
-            return rankA - rankB; // Ascending sort (1 is better than 20)
-        };
-
-        // Apply Sort
-        userSkaters.sort(sortRosterFn);
-        userGoalies.sort(sortRosterFn);
-        oppSkaters.sort(sortRosterFn);
-        oppGoalies.sort(sortRosterFn);
-
-
-        // 3. Table Swapping Logic
-        const isGoalieCategory = goalieCategories.includes(selectedCategory);
-
-        const userSkaterContainer = document.getElementById('roster-skater-table-container');
-        const userGoalieContainer = document.getElementById('roster-goalie-table-container');
-
-        // Render User Roster (No swapping needed for the fixed containers)
-        renderRosterTable(userSkaterContainer, userSkaters, skaterCategories, 'Team Skaters', false);
-        renderRosterTable(userGoalieContainer, userGoalies, goalieCategories, 'Team Goalies', false);
-
-
-        // 4. Render Opponent Roster and Swap Sections
-
-        // Render content into the fixed opponent containers
-        renderRosterTable(opponentSkaterTableContainer, oppSkaters, skaterCategories, 'Opponent Skaters', true);
-        renderRosterTable(opponentGoalieTableContainer, oppGoalies, goalieCategories, 'Opponent Goalies', true);
-
-        // Swap the visual order of the sections
-        if (isGoalieCategory) {
-            opponentGoalieSection.style.order = 1; // Move goalie section to the top
-            opponentSkaterSection.style.order = 2; // Move skater section below
-        } else {
-            opponentSkaterSection.style.order = 1;
-            opponentGoalieSection.style.order = 2;
-        }
-
+    // Check if player data is loaded and user team is selected
+    if (!allPlayers || allPlayers.length === 0 || !userTeamName) {
+        return; // Don't try to render if data is incomplete
     }
+
+    const selectedCategory = tradeToSelect.value;
+    // Default to the first skater category if none is selected
+    const rankKey = selectedCategory ? `${selectedCategory}_cat_rank` : (skaterCategories.length > 0 ? `${skaterCategories[0]}_cat_rank` : 'unknown_cat_rank');
+
+    // 1. Filter and Split Rosters - CORRECTED LOGIC
+    // Filter for the currently selected user team.
+    const userPlayers = allPlayers.filter(p => p.fantasy_team_name === userTeamName);
+    const userSkaters = userPlayers.filter(p => !(p.eligible_positions || '').includes('G'));
+    const userGoalies = userPlayers.filter(p => (p.eligible_positions || '').includes('G'));
+
+    // Filter for ALL OPPONENT TEAMS (exclude the user's team and Free Agents)
+    const oppPlayers = allPlayers.filter(p => p.fantasy_team_name !== userTeamName && p.fantasy_team_name !== 'Free Agent');
+    const oppSkaters = oppPlayers.filter(p => !(p.eligible_positions || '').includes('G'));
+    const oppGoalies = oppPlayers.filter(p => (p.eligible_positions || '').includes('G'));
+
+
+    // 2. Sorting Function (used for all tables) - NO CHANGE NEEDED
+    const sortRosterFn = (a, b) => {
+        if (!selectedCategory) return 0;
+
+        const rankA = a[rankKey];
+        const rankB = b[rankKey];
+
+        // Push nulls/undefined/0 to the end (higher rank number is worse)
+        if (rankA === null || rankA === undefined || rankA === 0) return 1;
+        if (rankB === null || rankB === undefined || rankB === 0) return -1;
+
+        return rankA - rankB; // Ascending sort (1 is better than 20)
+    };
+
+    // Apply Sort
+    userSkaters.sort(sortRosterFn);
+    userGoalies.sort(sortRosterFn);
+    oppSkaters.sort(sortRosterFn);
+    oppGoalies.sort(sortRosterFn);
+
+
+    // 3. Table Swapping Logic - NO CHANGE NEEDED
+    const isGoalieCategory = goalieCategories.includes(selectedCategory);
+
+    const userSkaterContainer = document.getElementById('roster-skater-table-container');
+    const userGoalieContainer = document.getElementById('roster-goalie-table-container');
+
+    // Render User Roster (No swapping needed for the fixed containers)
+    renderRosterTable(userSkaterContainer, userSkaters, skaterCategories, 'Team Skaters', false);
+    renderRosterTable(userGoalieContainer, userGoalies, goalieCategories, 'Team Goalies', false);
+
+
+    // 4. Render Opponent Roster and Swap Sections - NO CHANGE NEEDED (Opponent team column is now possible)
+    renderRosterTable(opponentSkaterTableContainer, oppSkaters, skaterCategories, 'Opponent Skaters', true);
+    renderRosterTable(opponentGoalieTableContainer, oppGoalies, goalieCategories, 'Opponent Goalies', true);
+
+    // Swap the visual order of the sections
+    if (isGoalieCategory) {
+        opponentGoalieSection.style.order = 1; // Move goalie section to the top
+        opponentSkaterSection.style.order = 2; // Move skater section below
+    } else {
+        opponentSkaterSection.style.order = 1;
+        opponentGoalieSection.style.order = 2;
+    }
+}
 
     function renderRosterTable(container, players, categories, title, showFantasyTeamColumn = false) {
         if (!players || players.length === 0) {

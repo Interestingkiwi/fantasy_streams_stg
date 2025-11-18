@@ -2463,6 +2463,96 @@ def get_trade_helper_roster_data():
             conn.close()
 
 
+@app.route('/api/trade_helper_league_roster_data', methods=['POST'])
+def get_trade_helper_league_roster_data():
+    """
+    Fetches ALL rostered players in the league, along with all category ranks
+    for each player. Used by the Trade Helper page to see opponent rosters.
+    """
+    league_id = session.get('league_id')
+    data = request.get_json()
+    sourcing = data.get('sourcing', 'projected')
+    stat_table = get_stat_source_table(sourcing)
+
+    conn, error_msg = get_db_connection_for_league(league_id)
+    if not conn:
+        return jsonify({'error': error_msg}), 404
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Get Team Names/IDs for mapping
+        cursor.execute("SELECT team_id, name FROM teams")
+        teams_map = {str(row['team_id']): row['name'].decode('utf-8').strip() for row in cursor.fetchall()}
+
+        # 2. Get Scoring Categories
+        cursor.execute("SELECT category, scoring_group FROM scoring ORDER BY scoring_group DESC, stat_id")
+        all_categories_raw = cursor.fetchall()
+        skater_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'offense']
+        goalie_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'goaltending']
+        all_scoring_categories = skater_categories + goalie_categories
+
+        # 3. Get all players rostered in the league
+        # Joining rostered_players (rp), players (p), and rosters_tall (r)
+        cursor.execute("""
+            SELECT
+                p.player_id, p.player_name, p.player_team as team,
+                rp.eligible_positions, p.player_name_normalized,
+                r.team_id as fantasy_team_id
+            FROM rosters_tall r
+            JOIN rostered_players rp ON r.player_id = rp.player_id
+            JOIN players p ON rp.player_id = p.player_id
+        """)
+        all_players_raw = cursor.fetchall()
+        all_players = decode_dict_values([dict(row) for row in all_players_raw])
+
+        # 4. Add the Fantasy Team Name to each player
+        for player in all_players:
+            player['fantasy_team_name'] = teams_map.get(str(player['fantasy_team_id']), 'Unknown Team')
+
+        # 5. Get Cat Ranks for these players (Remaining steps are similar to your original logic)
+        cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
+        valid_normalized_names = [p.get('player_name_normalized') for p in all_players if p.get('player_name_normalized')]
+
+        player_stats = {}
+        if valid_normalized_names:
+            placeholders = ','.join('?' for _ in valid_normalized_names)
+            query = f"""
+                SELECT player_name_normalized, {', '.join(cat_rank_columns)}
+                FROM {stat_table} j WHERE player_name_normalized IN ({placeholders})
+            """
+            cursor.execute(query, valid_normalized_names)
+            player_stats = {row['player_name_normalized']: dict(row) for row in cursor.fetchall()}
+
+        # 6. Enrich players with their ranks
+        for player in all_players:
+            p_stats = player_stats.get(player.get('player_name_normalized'))
+            if p_stats:
+                for cat in all_scoring_categories:
+                    rank_key = f"{cat}_cat_rank"
+                    rank_value = p_stats.get(rank_key)
+                    player[rank_key] = round(rank_value, 2) if rank_value is not None else None
+            else:
+                 # Ensure ranks are set to None if no stats are found
+                 for cat in all_scoring_categories:
+                    player[f"{cat}_cat_rank"] = None
+
+
+        return jsonify({
+            'players': all_players,
+            'skater_categories': skater_categories,
+            'goalie_categories': goalie_categories
+        })
+
+    except Exception as e:
+        logging.error(f"Error fetching league roster data: {e}", exc_info=True)
+        return jsonify({'error': f"An error occurred: {e}"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+            
+
 @app.route('/api/schedules_page_data')
 def schedules_page_data():
     """
