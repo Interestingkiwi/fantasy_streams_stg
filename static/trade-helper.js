@@ -549,7 +549,7 @@
         html += `</tr></thead><tbody class="bg-gray-800 divide-y divide-gray-700">`;
 
         players.forEach(p => {
-            const isChecked = selectedPlayerIds.has(p.player_id) ? 'checked' : '';
+            const isChecked = selectedPlayerIds.has(String(p.player_id)) ? 'checked' : '';
             const teamClass = p.fantasy_team_name === userTeamName ? 'border-l-4 border-blue-500' : '';
 
             html += `<tr class="hover:bg-gray-700/50 ${teamClass}">`;
@@ -598,80 +598,76 @@
 
     function calculateTradeImpact(userTeam, oppTeam, userGiving, oppGiving) {
         const completedWeeks = Math.max(1, rosterData.currentWeek - 1);
-        const leagueTotals = {};
 
-        rosterData.players.forEach(p => {
-            const team = p.fantasy_team_name;
-            if (team === 'Free Agent' || !team) return;
-            if (!leagueTotals[team]) leagueTotals[team] = {};
+        // --- 1. Get Baseline Totals (FROM SERVER DATA) ---
+        // We use the actual historical data sent from app.py
+        // Deep copy to avoid mutating the original data source
+        const leagueTotals = JSON.parse(JSON.stringify(categoryData.league_raw_stats));
 
-            const isGoalie = (p.eligible_positions || '').includes('G');
-            // Note: Original logic was (val * factor * completedWeeks).
-            // Using raw value from DB which is PER GAME avg.
-            const factor = (isGoalie ? 2.0 : 3.4) * completedWeeks;
+        if (!leagueTotals || !leagueTotals[userTeam]) {
+            console.error("Missing league_raw_stats data.");
+            return { userImpact: [], oppImpact: [] };
+        }
 
-            const allCats = [...rosterData.skaterCategories, ...rosterData.goalieCategories, 'GA', 'SV', 'SA', 'TOI/G'];
-            allCats.forEach(cat => {
-                const rate = parseFloat(p[cat] || 0);
-                const val = isNaN(rate) ? 0 : rate;
-                leagueTotals[team][cat] = (leagueTotals[team][cat] || 0) + (val * factor);
-            });
-        });
-
-        Object.keys(leagueTotals).forEach(team => {
-            const t = leagueTotals[team];
-            if (t['TOI/G'] > 0) t['GAA'] = (t['GA'] * 60) / t['TOI/G'];
-            if (t['SA'] > 0) t['SVpct'] = t['SV'] / t['SA'];
-        });
-
+        // --- 2. Adjust Teams Function ---
         const adjustTeam = (teamName, outgoingPlayers, incomingPlayers) => {
             const totals = { ...leagueTotals[teamName] };
             const cats = [...rosterData.skaterCategories, ...rosterData.goalieCategories, 'GA', 'SV', 'SA', 'TOI/G'];
 
             cats.forEach(cat => {
-                let change = 0; // PER WEEK change
+                let change = 0; // Change in PER WEEK output
+
+                // Outgoing
                 outgoingPlayers.forEach(p => {
                     const isGoalie = (p.eligible_positions || '').includes('G');
                     const rate = parseFloat(p[cat] || 0);
                     const factor = isGoalie ? 2.0 : 3.4;
                     change -= (rate * factor);
                 });
+
+                // Incoming
                 incomingPlayers.forEach(p => {
                     const isGoalie = (p.eligible_positions || '').includes('G');
                     const rate = parseFloat(p[cat] || 0);
                     const factor = isGoalie ? 2.0 : 3.4;
                     change += (rate * factor);
                 });
-                // Add projected rest-of-season change? Or retroactive?
-                // Prompt: "re-ranks everyone in the league against the involved teams new numbers"
-                // Prompt: "add those to the weeklytotal... multiplies those weeklytotals back by the number of completed weeks"
-                // Current Total is (Avg * Factor * Weeks).
-                // New Total = Current Total + (Change * Weeks)
+
+                // Update Total: Current + (WeeklyChange * CompletedWeeks)
+                // Note: totals[cat] is the Real Season Total. We apply the "Retroactive" trade math here.
                 totals[cat] = Math.max(0, totals[cat] + (change * completedWeeks));
             });
 
+            // Recalc Ratios after adjustment
             if (totals['TOI/G'] > 0) totals['GAA'] = (totals['GA'] * 60) / totals['TOI/G'];
             if (totals['SA'] > 0) totals['SVpct'] = totals['SV'] / totals['SA'];
+
             return totals;
         };
 
-        const newLeagueTotals = JSON.parse(JSON.stringify(leagueTotals));
+        // --- 3. Create Scenarios ---
+        const newLeagueTotals = JSON.parse(JSON.stringify(leagueTotals)); // Deep copy
+
         newLeagueTotals[userTeam] = adjustTeam(userTeam, userGiving, oppGiving);
         newLeagueTotals[oppTeam] = adjustTeam(oppTeam, oppGiving, userGiving);
 
+        // --- 4. Rank Function ---
         const calculateRankShift = (targetTeam, categories) => {
             const result = [];
             const reverseCats = ['GA', 'GAA', 'L'];
 
             categories.forEach(cat => {
+                // Exclude sub-cats from visual table
                 if (cat === 'GA' || cat === 'SV' || cat === 'SA') return;
 
+                // A. Calculate OLD Rank (using ORIGINAL leagueTotals)
                 const oldVals = Object.values(leagueTotals).map(t => t[cat] || 0);
                 const isRev = reverseCats.includes(cat);
                 oldVals.sort((a, b) => isRev ? a - b : b - a);
                 const oldVal = leagueTotals[targetTeam][cat] || 0;
                 const oldRank = oldVals.indexOf(oldVal) + 1;
 
+                // B. Calculate NEW Rank (using NEW leagueTotals)
                 const newVals = Object.values(newLeagueTotals).map(t => t[cat] || 0);
                 newVals.sort((a, b) => isRev ? a - b : b - a);
                 const newVal = newLeagueTotals[targetTeam][cat] || 0;
@@ -681,13 +677,14 @@
                     category: cat,
                     oldRank: oldRank,
                     newRank: newRank,
-                    change: oldRank - newRank
+                    change: oldRank - newRank // Positive = Improvement (e.g. 5 -> 2)
                 });
             });
             return result;
         };
 
         const allCatsToRank = [...rosterData.skaterCategories, ...rosterData.goalieCategories];
+
         return {
             userImpact: calculateRankShift(userTeam, allCatsToRank),
             oppImpact: calculateRankShift(oppTeam, allCatsToRank)

@@ -2214,10 +2214,11 @@ def get_category_strengths_data():
 
 
 @app.route('/api/trade_helper_data', methods=['POST'])
+@app.route('/api/trade_helper_data', methods=['POST'])
 def get_trade_helper_data():
     """
     Fetches category strength data and generates a league rank matrix.
-    Includes logic for nesting Goalie sub-categories (GAA -> GA, SV% -> SV/SA).
+    Now includes 'league_raw_stats' so the frontend can simulate trades accurately.
     """
     league_id = session.get('league_id')
     conn, error_msg = get_db_connection_for_league(league_id)
@@ -2241,8 +2242,6 @@ def get_trade_helper_data():
              return jsonify({'error': f'Valid team_name is required.'}), 404
 
         selected_team_id = teams_map_name_to_id[selected_team_name]
-
-        # Define opponent lists
         opponent_team_ids = [tid for tid in all_team_ids if tid != selected_team_id]
         num_opponents = len(opponent_team_ids)
 
@@ -2266,15 +2265,9 @@ def get_trade_helper_data():
         goalie_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'goaltending']
         all_scoring_categories_list = skater_categories + goalie_categories
 
-        # --- CONFIG: Sub-Category Logic ---
-        # Maps Parent Category -> List of Children to display
         goalie_sub_cats_map = {'GAA': ['GA', 'TOI/G'], 'SVpct': ['SV', 'SA']}
-
-        # We must fetch and rank these sub-cats even if they aren't scoring settings
         extra_stats = {'SV', 'SA', 'GA', 'TOI/G'}
         categories_to_fetch = set(all_scoring_categories_list) | extra_stats
-
-        # Lower is better for these
         reverse_scoring_cats = {'GA', 'GAA', 'L'}
 
         # 4. Aggregate Stats
@@ -2288,7 +2281,7 @@ def get_trade_helper_data():
         cursor.execute(sql_query, tuple(sql_params))
         raw_stats = decode_dict_values([dict(row) for row in cursor.fetchall()])
 
-        # 5. Pivot Data & Calculate Derived Stats
+        # 5. Pivot Data
         all_team_stats = {tid: {cat: 0 for cat in categories_to_fetch} for tid in all_team_ids}
 
         for row in raw_stats:
@@ -2296,20 +2289,27 @@ def get_trade_helper_data():
             if tid in all_team_stats and row['category'] in all_team_stats[tid]:
                 all_team_stats[tid][row['category']] = row.get('total', 0)
 
+        # Calculate Derived Stats
         for tid in all_team_stats:
             stats = all_team_stats[tid]
             sv, sa, ga = stats.get('SV', 0), stats.get('SA', 0), stats.get('GA', 0)
             toi, sho = stats.get('TOI/G', 0), stats.get('SHO', 0)
             if sho > 0: toi += (sho * 60)
-            stats['TOI/G'] = toi # Ensure TOI is updated
+            stats['TOI/G'] = toi
 
             if 'GAA' in categories_to_fetch:
                 stats['GAA'] = (ga * 60) / toi if toi > 0 else 0
             if 'SVpct' in categories_to_fetch:
                 stats['SVpct'] = sv / sa if sa > 0 else 0
 
+        # --- NEW: Build Readable League Stats Dict (Name -> Stats) ---
+        league_raw_stats = {}
+        for tid, stats in all_team_stats.items():
+            tname = teams_map_id_to_name.get(tid, f"Unknown ({tid})")
+            league_raw_stats[tname] = stats
+        # ------------------------------------------------------------
+
         # 6. Generate League Rank Matrix
-        # We calculate ranks for ALL fetched categories so we can display ranks for sub-cats
         league_rank_matrix = {}
         for team_name in teams_map_name_to_id.keys():
             league_rank_matrix[team_name] = {}
@@ -2330,7 +2330,6 @@ def get_trade_helper_data():
         goalie_data_rows = []
 
         def build_row_dict(cat):
-            # Helper to build a single row object
             my_rank = league_rank_matrix[selected_team_name].get(cat, '-')
             my_val = all_team_stats[selected_team_id].get(cat, 0)
 
@@ -2353,16 +2352,12 @@ def get_trade_helper_data():
 
         def build_rows(cats, target_list):
             for cat in cats:
-                # 1. Build Main Row
                 row = build_row_dict(cat)
                 row['sub_rows'] = []
-
-                # 2. Check and Build Sub-Rows (Children)
                 if cat in goalie_sub_cats_map:
                     for sub_cat in goalie_sub_cats_map[cat]:
                         sub_row = build_row_dict(sub_cat)
                         row['sub_rows'].append(sub_row)
-
                 target_list.append(row)
 
         build_rows(skater_categories, skater_data_rows)
@@ -2373,6 +2368,7 @@ def get_trade_helper_data():
             'goalie_stats': goalie_data_rows,
             'all_scoring_categories': all_scoring_categories_list,
             'league_rank_matrix': league_rank_matrix,
+            'league_raw_stats': league_raw_stats,  # <--- SENDING THIS NOW
             'total_teams': len(all_team_ids)
         })
 
