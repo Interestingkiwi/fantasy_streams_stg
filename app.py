@@ -2925,7 +2925,7 @@ def get_roster_data():
                 all_players.append(move['added_player'])
 
         cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
-        raw_stat_columns = [f"{cat}" for cat in all_scoring_categories]
+        raw_stat_columns = [f'"{cat}"' for cat in all_scoring_categories]
         all_cols = list(set(cat_rank_columns + raw_stat_columns))
         pp_stat_columns = [
             'avg_ppTimeOnIcePctPerGame', 'lg_ppTimeOnIce', 'lg_ppTimeOnIcePctPerGame',

@@ -78,170 +78,79 @@
     }
 
     async function init() {
-        // --- [START] NEW: Add BOTH modals ---
-        const ppModalHTML = `
-        <div id="pp-stats-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" style="backdrop-filter: blur(2px);">
-            <div class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-lg relative border border-gray-700">
-                <button id="pp-modal-close" class="absolute top-3 right-3 text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
-                <h3 id="pp-modal-title" class="text-xl font-bold text-white mb-4">Player PP Stats</h3>
-                <div id="pp-modal-content" class="text-gray-300"></div>
-            </div>
-        </div>
-        `;
-        const opponentModalHTML = `
-        <div id="opponent-stats-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" style="backdrop-filter: blur(2px);">
-            <div class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-2xl relative border border-gray-700">
-                <button id="opponent-modal-close" class="absolute top-3 right-3 text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
-                <h3 id="opponent-modal-title" class="text-xl font-bold text-white mb-4">Opponent Stats</h3>
-                <div id="opponent-modal-content" class="text-gray-300 overflow-x-auto"></div>
-            </div>
-        </div>
-        `;
-        document.body.insertAdjacentHTML('beforeend', ppModalHTML);
-        document.body.insertAdjacentHTML('beforeend', opponentModalHTML);
-
-        // Add listeners for PP modal
-        document.getElementById('pp-modal-close').addEventListener('click', () => {
-            document.getElementById('pp-stats-modal').classList.add('hidden');
-        });
-        document.getElementById('pp-stats-modal').addEventListener('click', (e) => {
-            if (e.target.id === 'pp-stats-modal') {
-                document.getElementById('pp-stats-modal').classList.add('hidden');
-            }
-        });
-
-        // Add listeners for Opponent modal
-        document.getElementById('opponent-modal-close').addEventListener('click', () => {
-            document.getElementById('opponent-stats-modal').classList.add('hidden');
-        });
-        document.getElementById('opponent-stats-modal').addEventListener('click', (e) => {
-            if (e.target.id === 'opponent-stats-modal') {
-                document.getElementById('opponent-stats-modal').classList.add('hidden');
-            }
-        });
-        // --- [END] NEW MODALS ---
-
         try {
             const response = await fetch('/api/lineup_page_data');
             const data = await response.json();
-
-            if (!response.ok || !data.db_exists) {
-                throw new Error(data.error || 'Database has not been initialized.');
-            }
+            if (!response.ok || !data.db_exists) throw new Error(data.error || 'Database has not been initialized.');
 
             pageData = data;
             populateDropdowns();
             const savedCategories = localStorage.getItem(CATEGORY_PREF_KEY);
-            if (savedCategories) {
-                checkedCategories = JSON.parse(savedCategories);
-            }
+            if (savedCategories) checkedCategories = JSON.parse(savedCategories);
+
             setupEventListeners();
-
-            // Initial data load
             await fetchAndRenderTable();
-
             controlsDiv.classList.remove('hidden');
-
         } catch (error) {
             console.error('Initialization error:', error);
             errorDiv.classList.remove('hidden');
             controlsDiv.classList.add('hidden');
             tableContainer.classList.add('hidden');
-            optimalLineupContainer.classList.add('hidden');
         }
     }
 
+    // Re-render when global toggle changes
     window.addEventListener('rawDataToggled', (e) => {
         if (currentRosterData) {
-            // Re-render with existing data using new state
             renderTable(currentRosterData.players, currentRosterData.daily_optimal_lineups);
         }
     });
 
     function populateDropdowns() {
-        // Populate Weeks
-        weekSelect.innerHTML = pageData.weeks.map(week =>
-            `<option value="${week.week_num}">
-                Week ${week.week_num} (${week.start_date} to ${week.end_date})
-            </option>`
-        ).join('');
+        weekSelect.innerHTML = pageData.weeks.map(w => `<option value="${w.week_num}">Week ${w.week_num} (${w.start_date} to ${w.end_date})</option>`).join('');
+        yourTeamSelect.innerHTML = pageData.teams.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
 
-        // Populate Teams
-        const teamOptions = pageData.teams.map(team =>
-            `<option value="${team.name}">${team.name}</option>`
-        ).join('');
-        yourTeamSelect.innerHTML = teamOptions;
-
-        // Restore team selection
         const savedTeam = localStorage.getItem('selectedTeam');
-        if (savedTeam) {
-            yourTeamSelect.value = savedTeam;
-        }
+        if (savedTeam) yourTeamSelect.value = savedTeam;
 
-        // Restore week selection
         if (!sessionStorage.getItem('fantasySessionStarted')) {
-            const currentWeek = pageData.current_week;
-            weekSelect.value = currentWeek;
-            localStorage.setItem('selectedWeek', currentWeek);
+            weekSelect.value = pageData.current_week;
+            localStorage.setItem('selectedWeek', pageData.current_week);
             sessionStorage.setItem('fantasySessionStarted', 'true');
         } else {
             const savedWeek = localStorage.getItem('selectedWeek');
-            if (savedWeek) {
-                weekSelect.value = savedWeek;
-            } else {
-                weekSelect.value = pageData.current_week;
-            }
+            if (savedWeek) weekSelect.value = savedWeek;
+            else weekSelect.value = pageData.current_week;
         }
     }
 
     async function fetchAndRenderTable() {
         const selectedWeek = weekSelect.value;
         const yourTeamName = yourTeamSelect.value;
-
-        if (!selectedWeek || !yourTeamName) {
-            tableContainer.innerHTML = '<p class="text-gray-400">Please make all selections.</p>';
-            return;
-        }
+        if (!selectedWeek || !yourTeamName) return;
 
         tableContainer.innerHTML = '<p class="text-gray-400">Loading roster...</p>';
-        optimalLineupContainer.innerHTML = '<p class="text-gray-400">Calculating optimal lineups...</p>';
-        unusedRosterSpotsContainer.innerHTML = '';
 
         const categoryCheckboxes = document.querySelectorAll('#category-checkboxes-container input[name="category"]:checked');
-        let categoriesToSend = null;
-
-        if (categoryCheckboxes.length > 0) {
-            categoriesToSend = Array.from(categoryCheckboxes).map(cb => cb.value);
-        } else if (checkedCategories.length > 0) {
-            categoriesToSend = checkedCategories;
-        }
+        let categoriesToSend = categoryCheckboxes.length > 0 ? Array.from(categoryCheckboxes).map(cb => cb.value) : checkedCategories;
 
         const cachedSim = localStorage.getItem(SIMULATION_KEY);
         simulatedMoves = cachedSim ? JSON.parse(cachedSim) : [];
-
         const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
 
         try {
             const response = await fetch('/api/roster_data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    week: selectedWeek,
-                    team_name: yourTeamName,
-                    categories: categoriesToSend,
-                    simulated_moves: simulatedMoves,
-                    sourcing: selectedSourcing
-                })
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ week: selectedWeek, team_name: yourTeamName, categories: categoriesToSend, simulated_moves: simulatedMoves, sourcing: selectedSourcing })
             });
-
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to fetch roster.');
 
+            currentRosterData = data; // Store for re-rendering
+
             if (allScoringCategories.length === 0) {
-                allScoringCategories = data.scoring_categories; // For checkboxes
-                if (localStorage.getItem(CATEGORY_PREF_KEY) === null) {
-                    checkedCategories = data.checked_categories;
-                }
+                allScoringCategories = data.scoring_categories;
+                if (localStorage.getItem(CATEGORY_PREF_KEY) === null) checkedCategories = data.checked_categories;
                 renderCategoryCheckboxes();
             }
             skaterCategories = data.skater_categories;
@@ -252,83 +161,65 @@
             renderUnusedRosterSpotsTable(data.unused_roster_spots);
             renderSimulatedMovesLog();
 
-
         } catch(error) {
             console.error('Error fetching roster:', error);
             tableContainer.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
-            optimalLineupContainer.innerHTML = '<p class="text-red-400">Could not generate lineups.</p>';
         }
     }
 
     function renderTable(roster, dailyLineups) {
-        const positionOrder = ['C', 'LW', 'RW', 'D', 'G', 'IR', 'IR+'];
-        const showRaw = localStorage.getItem('showRawData') === 'true';
-        // 1. Create playerStartsByDay map
+        // Build playerStartsByDay map
         const playerStartsByDay = {};
-        const dayAbbrMap = {
-            'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed',
-            'Thursday': 'Thu', 'Friday': 'Fri', 'Saturday': 'Sat', 'Sunday': 'Sun'
-        };
-
+        const dayAbbrMap = { 'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed', 'Thursday': 'Thu', 'Friday': 'Fri', 'Saturday': 'Sat', 'Sunday': 'Sun' };
         for (const dayString in dailyLineups) {
             const lineup = dailyLineups[dayString];
             const dayName = dayString.split(',')[0];
             const dayAbbr = dayAbbrMap[dayName];
-
             if (dayAbbr) {
                 for (const position in lineup) {
                     lineup[position].forEach(player => {
-                        if (!playerStartsByDay[player.player_name]) {
-                            playerStartsByDay[player.player_name] = new Set();
-                        }
+                        if (!playerStartsByDay[player.player_name]) playerStartsByDay[player.player_name] = new Set();
                         playerStartsByDay[player.player_name].add(dayAbbr);
                     });
                 }
             }
         }
 
-        // 2. Filter players
         const skaters = roster.filter(p => !(p.eligible_positions || p.positions || '').includes('G'));
         const goalies = roster.filter(p => (p.eligible_positions || p.positions || '').includes('G'));
 
-        // 3. Sort players
+        // Sort by position order
+        const positionOrder = ['C', 'LW', 'RW', 'D', 'G', 'IR', 'IR+'];
         const sortFn = (a, b) => {
-            const posStrA = (a.eligible_positions || a.positions || '').toString();
-            const posStrB = (b.eligible_positions || b.positions || '').toString();
-            const posA = posStrA.split(',').map(p => p.trim());
-            const posB = posStrB.split(',').map(p => p.trim());
-
             const getBestPosIndex = (posArr) => {
                 let minIndex = Infinity;
                 let isIR = false;
                 posArr.forEach(p => {
-                    if (p.includes('IR')) {
-                        isIR = true;
-                    }
+                    if (p.includes('IR')) isIR = true;
                     const idx = positionOrder.indexOf(p);
-                    if (idx !== -1 && idx < minIndex) {
-                        minIndex = idx;
-                    }
+                    if (idx !== -1 && idx < minIndex) minIndex = idx;
                 });
                 if (isIR) return 100;
                 if (minIndex === Infinity) return 99;
                 return minIndex;
             };
 
-            const bestPosA = getBestPosIndex(posA);
-            const bestPosB = getBestPosIndex(posB);
-
-            return bestPosA - bestPosB;
+            const posA = (a.eligible_positions || a.positions || '').split(',').map(p => p.trim());
+            const posB = (b.eligible_positions || b.positions || '').split(',').map(p => p.trim());
+            return getBestPosIndex(posA) - getBestPosIndex(posB);
         };
+
         skaters.sort(sortFn);
         goalies.sort(sortFn);
 
-        // 4. Build tables
         tableContainer.innerHTML = buildPlayerTable('Skaters', skaters, skaterCategories, playerStartsByDay) +
-                                 buildPlayerTable('Goalies', goalies, goalieCategories, playerStartsByDay);
+                                   buildPlayerTable('Goalies', goalies, goalieCategories, playerStartsByDay);
     }
 
     function buildPlayerTable(title, players, categories, playerStartsByDay) {
+        // --- READ LOCALSTORAGE HERE (Fixes "showRaw is not defined") ---
+        const showRaw = localStorage.getItem('showRawData') === 'true';
+
         let tableHtml = `
             <div class="bg-gray-900 rounded-lg shadow ${title === 'Goalies' ? 'mt-6' : ''}">
                 <h2 class="text-xl font-bold text-white p-3 bg-gray-800 rounded-t-lg">${title}</h2>
@@ -336,56 +227,41 @@
                     <table class="min-w-full divide-y divide-gray-700">
                         <thead class="bg-gray-700/50">
                             <tr>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Player Name</th>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Team</th>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Positions</th>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">This Week</th>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Opponents</th>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider"># Games</th>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Starts</th>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Next Week</th>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">
-                                    PP Utilization
-                                    <span class="text-xs text-gray-400 font-light block">(Click cell)</span>
-                                </th>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">Player Name</th>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">Team</th>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">Positions</th>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">This Week</th>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">Opponents</th>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">#</th>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">Starts</th>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">Next Wk</th>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">PP Util</th>
+                                <th class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase">Total Rank</th>
         `;
         (categories || []).forEach(cat => {
-            tableHtml += `<th scope="col" class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider">${cat}</th>`;
+            tableHtml += `<th class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase">${cat}</th>`;
         });
         tableHtml += `</tr></thead><tbody class="bg-gray-800 divide-y divide-gray-700">`;
 
         if (players.length === 0) {
-            const colspan = 9 + (categories || []).length; // Increased colspan
+            const colspan = 10 + (categories || []).length;
             tableHtml += `<tr><td colspan="${colspan}" class="text-center py-4 text-gray-400">No ${title.toLowerCase()} found on roster.</td></tr>`;
         }
 
         players.forEach(player => {
-            const gamesThisWeekHtml = (player.games_this_week || []).map(day => {
-                if (playerStartsByDay[player.player_name] && playerStartsByDay[player.player_name].has(day)) {
-                    return `<strong class="text-yellow-300">${day}</strong>`;
-                }
-                return day;
-            }).join(', ');
-
-            const statusHtml = (player.status && player.status !== 'FA')
-                ? ` <a href="https://sports.yahoo.com/nhl/players/${player.player_id}/news/"
-                       target="_blank" rel="noopener noreferrer"
-                       class="text-red-400 ml-1 hover:text-red-300 hover:underline"
-                       title="View player news on Yahoo (opens new tab)">(${player.status})</a>`
-                : '';
-
+            const gamesThisWeekHtml = (player.games_this_week || []).map(day => (playerStartsByDay[player.player_name]?.has(day) ? `<strong class="text-yellow-300">${day}</strong>` : day)).join(', ');
+            const statusHtml = (player.status && player.status !== 'FA') ? `<span class="text-red-400 ml-1">(${player.status})</span>` : '';
 
             const opponentsList = (player.opponents_list || []).join(', ');
             const opponentStatsJson = JSON.stringify(player.opponent_stats_this_week || []);
-            const isGoalie = (player.eligible_positions || player.positions || '').includes('G');
 
-            let catRankSum = 0;
-            let validRanks = 0;
+            let catRankSum = 0, validRanks = 0;
             (categories || []).forEach(cat => {
                 const r = player[cat + '_cat_rank'];
-                if (r !== null && r !== undefined) { catRankSum += r; validRanks++; }
+                if (r != null) { catRankSum += r; validRanks++; }
             });
-            // Store player data as JSON string for the modal (escaping quotes)
+
+            // Escape JSON for HTML attributes
             const playerJson = JSON.stringify(player).replace(/'/g, "&apos;").replace(/"/g, "&quot;");
             const catsJson = JSON.stringify(categories || []).replace(/"/g, "&quot;");
 
@@ -407,23 +283,17 @@
                     </td>
             `;
 
-            // --- NEW: Category Cells (Raw vs Rank) ---
             (categories || []).forEach(cat => {
-                let displayValue = '-';
-                let cellStyle = '';
+                let displayValue = '-', cellStyle = '';
 
                 if (showRaw) {
-                    // RAW DATA
                     const val = player[cat];
-                    // Simple formatting for raw numbers
-                    displayValue = (val !== null && val !== undefined && !isNaN(val)) ? parseFloat(val).toFixed(2).replace(/[.,]00$/, "") : '-';
+                    displayValue = (val != null && !isNaN(val)) ? parseFloat(val).toFixed(2).replace(/[.,]00$/, "") : (val || '-');
                     cellStyle = 'text-gray-400';
                 } else {
-                    // RANK DATA
                     const rank = player[cat + '_cat_rank'];
-                    displayValue = (rank !== null && rank !== undefined) ? Math.round(rank) : '-';
-                    const color = getHeatmapColor(rank);
-                    cellStyle = `background-color: ${color}; color: #1f2937; font-weight: 600;`;
+                    displayValue = (rank != null) ? Math.round(rank) : '-';
+                    cellStyle = `background-color: ${getHeatmapColor(rank)}; color: #1f2937; font-weight: 600;`;
                 }
 
                 tableHtml += `<td class="px-2 py-1 text-center text-sm ${cellStyle}" style="${cellStyle.includes(':') ? cellStyle : ''}">${displayValue}</td>`;
