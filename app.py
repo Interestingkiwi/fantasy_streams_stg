@@ -548,7 +548,7 @@ def _calculate_unused_spots(days_in_week, active_players, lineup_settings, simul
 
     return unused_spots_data
 
-def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num, team_stats_map, sourcing='projected'):
+def _get_ranked_players(cursor, player_ids, cat_rank_columns, raw_stat_columns, week_num, team_stats_map, sourcing='projected'):
     """
     Internal helper to fetch player details, ranks, and schedules for a list of player IDs.
     """
@@ -590,7 +590,7 @@ def _get_ranked_players(cursor, player_ids, cat_rank_columns, week_num, team_sta
         'lg_ppAssists', 'lg_ppGoals', 'avg_ppTimeOnIce', 'total_ppAssists',
         'total_ppGoals', 'team_games_played'
     ]
-    columns_to_select = base_columns + cat_rank_columns + pp_stat_columns
+    columns_to_select = base_columns + cat_rank_columns + pp_stat_columns + raw_stat_columns
 
     query = f"""
         SELECT {', '.join(columns_to_select)}
@@ -2925,6 +2925,8 @@ def get_roster_data():
                 all_players.append(move['added_player'])
 
         cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
+        raw_stat_columns = [f"{cat}" for cat in all_scoring_categories]
+        all_cols = list(set(cat_rank_columns + raw_stat_columns))
         pp_stat_columns = [
             'avg_ppTimeOnIcePctPerGame', 'lg_ppTimeOnIce', 'lg_ppTimeOnIcePctPerGame',
             'lg_ppAssists', 'lg_ppGoals', 'avg_ppTimeOnIce', 'total_ppAssists',
@@ -2937,7 +2939,7 @@ def get_roster_data():
         player_stats = {}
         if valid_normalized_names:
             placeholders = ','.join('?' for _ in valid_normalized_names)
-            columns_to_select = cat_rank_columns + pp_stat_columns
+            columns_to_select = all_cols + pp_stat_columns
             query = f"""
                 SELECT player_name_normalized, {', '.join(columns_to_select)}
                 FROM {stat_table} j WHERE player_name_normalized IN ({placeholders})
@@ -3071,7 +3073,8 @@ def get_free_agent_data():
 
         unchecked_categories = [cat for cat in all_scoring_categories if cat not in checked_categories]
         all_cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
-
+        raw_stat_columns = [f'"{cat}"' for cat in all_scoring_categories]
+        all_cols = list(set(all_cat_rank_columns + raw_stat_columns))
         selected_week_str = request_data.get('selected_week')
         target_week = None
 
@@ -3110,12 +3113,12 @@ def get_free_agent_data():
         cursor.execute("SELECT player_id FROM waiver_players")
         waiver_player_ids = [row['player_id'] for row in cursor.fetchall()]
         # --- MODIFIED: Pass only team_stats_map ---
-        waiver_players = _get_ranked_players(cursor, waiver_player_ids, all_cat_rank_columns, target_week, team_stats_map, sourcing)
+        waiver_players = _get_ranked_players(cursor, waiver_player_ids, cat_rank_columns, raw_stat_columns, target_week, team_stats_map, sourcing)
 
         cursor.execute("SELECT player_id FROM free_agents")
         free_agent_ids = [row['player_id'] for row in cursor.fetchall()]
         # --- MODIFIED: Pass only team_stats_map ---
-        free_agents = _get_ranked_players(cursor, free_agent_ids, all_cat_rank_columns, target_week, team_stats_map, sourcing)
+        free_agents = _get_ranked_players(cursor, free_agent_ids, cat_rank_columns, raw_stat_columns, target_week, team_stats_map, sourcing)
 
         # Recalculate total_cat_rank
         for player_list in [waiver_players, free_agents]:

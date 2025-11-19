@@ -2,7 +2,68 @@ document.addEventListener('DOMContentLoaded', () => {
     const logoutButton = document.getElementById('logout-button');
     const timestampText = document.getElementById('timestamp-text');
     const dropdownContainer = document.getElementById('dropdown-container');
+    const showRawCheckbox = document.getElementById('global-show-raw-data');
 
+    if (showRawCheckbox) {
+        // Init state
+        const isRaw = localStorage.getItem('showRawData') === 'true';
+        showRawCheckbox.checked = isRaw;
+
+        showRawCheckbox.addEventListener('change', (e) => {
+            const val = e.target.checked;
+            localStorage.setItem('showRawData', val);
+            // Notify all other scripts
+            window.dispatchEvent(new CustomEvent('rawDataToggled', { detail: { showRaw: val } }));
+        });
+    }
+    const modal = document.getElementById('global-cat-rank-modal');
+    const closeBtn = document.getElementById('global-modal-close');
+    const modalContent = document.getElementById('global-modal-content');
+    const modalTitle = document.getElementById('global-modal-title');
+
+    if (closeBtn && modal) {
+        closeBtn.onclick = () => modal.classList.add('hidden');
+        modal.onclick = (e) => { if (e.target === modal) modal.classList.add('hidden'); };
+    }
+
+    // Global function to open modal
+    window.openCatRankModal = function(playerObj, categories) {
+        if (!modal || !modalContent) return;
+
+        const showingRawMain = localStorage.getItem('showRawData') === 'true';
+        // If main view is Raw, modal shows Ranks. If main is Ranks, modal shows Raw.
+        const showRanksInModal = showingRawMain;
+
+        modalTitle.textContent = `${playerObj.player_name || 'Player'} - ${showRanksInModal ? 'Category Ranks' : 'Raw Stats'}`;
+
+        let html = `<table class="w-full text-sm text-left text-gray-300">
+            <thead class="text-xs text-gray-400 uppercase bg-gray-700"><tr><th class="px-3 py-2">Category</th><th class="px-3 py-2 text-right">${showRanksInModal ? 'Rank' : 'Value'}</th></tr></thead>
+            <tbody class="divide-y divide-gray-700">`;
+
+        categories.forEach(cat => {
+            let displayVal = '-';
+            let style = '';
+
+            if (showRanksInModal) {
+                const rank = playerObj[cat + '_cat_rank'];
+                displayVal = (rank != null) ? Math.round(rank) : '-';
+                // Use the existing getHeatmapColor if accessible, or inline logic
+                // (Assuming getHeatmapColor is available or we replicate simple logic here)
+                if (rank && rank <= 5) style = 'color: #4ade80; font-weight: bold;'; // Green
+                else if (rank && rank >= 15) style = 'color: #f87171;'; // Red
+            } else {
+                const raw = playerObj[cat];
+                displayVal = (raw != null && !isNaN(raw)) ? parseFloat(raw).toFixed(2).replace(/[.,]00$/, "") : (raw || '-');
+            }
+
+            html += `<tr><td class="px-3 py-2 font-medium">${cat}</td><td class="px-3 py-2 text-right" style="${style}">${displayVal}</td></tr>`;
+        });
+
+        html += `</tbody></table>`;
+        modalContent.innerHTML = html;
+        modal.classList.remove('hidden');
+    };
+});
     let pageData = null; // To store weeks, teams, etc.
 
     async function handleLogout() {

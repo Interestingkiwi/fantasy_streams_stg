@@ -20,6 +20,7 @@
     let simulatedMoves = [];
     let skaterCategories = [];
     let goalieCategories = [];
+    let currentRosterData = null;
 
     // --- [START] Helper Functions ---
     function formatPercentage(decimal) {
@@ -150,6 +151,13 @@
         }
     }
 
+    window.addEventListener('rawDataToggled', (e) => {
+        if (currentRosterData) {
+            // Re-render with existing data using new state
+            renderTable(currentRosterData.players, currentRosterData.daily_optimal_lineups);
+        }
+    });
+
     function populateDropdowns() {
         // Populate Weeks
         weekSelect.innerHTML = pageData.weeks.map(week =>
@@ -254,7 +262,7 @@
 
     function renderTable(roster, dailyLineups) {
         const positionOrder = ['C', 'LW', 'RW', 'D', 'G', 'IR', 'IR+'];
-
+        const showRaw = localStorage.getItem('showRawData') === 'true';
         // 1. Create playerStartsByDay map
         const playerStartsByDay = {};
         const dayAbbrMap = {
@@ -366,58 +374,68 @@
                        title="View player news on Yahoo (opens new tab)">(${player.status})</a>`
                 : '';
 
-            // --- [START] NEW: Opponent cell data ---
+
             const opponentsList = (player.opponents_list || []).join(', ');
             const opponentStatsJson = JSON.stringify(player.opponent_stats_this_week || []);
             const isGoalie = (player.eligible_positions || player.positions || '').includes('G');
-            // --- [END] NEW ---
+
+            let catRankSum = 0;
+            let validRanks = 0;
+            (categories || []).forEach(cat => {
+                const r = player[cat + '_cat_rank'];
+                if (r !== null && r !== undefined) { catRankSum += r; validRanks++; }
+            });
+            // Store player data as JSON string for the modal (escaping quotes)
+            const playerJson = JSON.stringify(player).replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+            const catsJson = JSON.stringify(categories || []).replace(/"/g, "&quot;");
 
             tableHtml += `
                 <tr class="hover:bg-gray-700/50">
-                    <td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${player.player_name}${statusHtml}</td>
-                    <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.team || player.player_team}</td>
-                    <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.eligible_positions || player.positions}</td>
-                    <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${gamesThisWeekHtml}</td>
-                    <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300 cursor-pointer hover:bg-gray-700 opponent-stats-cell"
-                        data-player-name="${player.player_name}"
-                        data-is-goalie="${isGoalie}"
-                        data-opponent-stats='${opponentStatsJson}'>
-                        ${opponentsList}
-                    </td>
-                    <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${(player.games_this_week || []).length}</td>
-                    <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.starts_this_week}</td>
-                    <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${(player.games_next_week || []).join(', ')}</td>
-                    <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300 cursor-pointer hover:bg-gray-700 pp-util-cell"
-                        data-player-name="${player.player_name}"
-                        data-avg-pp-pct="${player.avg_ppTimeOnIcePctPerGame}"
-                        data-lg-pp-toi="${player.lg_ppTimeOnIce}"
-                        data-lg-pp-pct="${player.lg_ppTimeOnIcePctPerGame}"
-                        data-lg-ppa="${player.lg_ppAssists}"
-                        data-lg-ppg="${player.lg_ppGoals}"
-                        data-lw-pp-toi="${player.avg_ppTimeOnIce}"
-                        data-lw-pp-pct="${player.avg_ppTimeOnIcePctPerGame}"
-                        data-lw-ppa="${player.total_ppAssists}"
-                        data-lw-ppg="${player.total_ppGoals}"
-                        data-lw-gp="${player.team_games_played}">
-                        ${formatPercentage(player.avg_ppTimeOnIcePctPerGame)}
+                    <td class="px-2 py-1 text-sm font-medium text-gray-300">${player.player_name}${statusHtml}</td>
+                    <td class="px-2 py-1 text-sm text-gray-300">${player.team || player.player_team}</td>
+                    <td class="px-2 py-1 text-sm text-gray-300">${player.eligible_positions}</td>
+                    <td class="px-2 py-1 text-sm text-gray-300">${gamesThisWeekHtml}</td>
+                    <td class="px-2 py-1 text-sm text-gray-300 cursor-pointer hover:bg-gray-700 opponent-stats-cell" data-opponent-stats='${opponentStatsJson}'>${opponentsList}</td>
+                    <td class="px-2 py-1 text-sm text-gray-300">${(player.games_this_week || []).length}</td>
+                    <td class="px-2 py-1 text-sm text-gray-300">${player.starts_this_week}</td>
+                    <td class="px-2 py-1 text-sm text-gray-300">${(player.games_next_week || []).join(', ')}</td>
+                    <td class="px-2 py-1 text-sm text-gray-300 pp-util-cell" data-player-name="${player.player_name}" data-avg-pp-pct="${player.avg_ppTimeOnIcePctPerGame}">${formatPercentage(player.avg_ppTimeOnIcePctPerGame)}</td>
+
+                    <td class="px-2 py-1 text-center font-bold text-blue-400 cursor-pointer hover:text-blue-300"
+                        onclick='window.openCatRankModal(${playerJson}, ${catsJson})'>
+                        ${validRanks > 0 ? Math.round(catRankSum) : '-'}
                     </td>
             `;
+
+            // --- NEW: Category Cells (Raw vs Rank) ---
             (categories || []).forEach(cat => {
-                const rank_key = cat + '_cat_rank';
-                let rank = '-';
-                if (player.hasOwnProperty(rank_key) && player[rank_key] !== null) {
-                    rank = player[rank_key];
+                let displayValue = '-';
+                let cellStyle = '';
+
+                if (showRaw) {
+                    // RAW DATA
+                    const val = player[cat];
+                    // Simple formatting for raw numbers
+                    displayValue = (val !== null && val !== undefined && !isNaN(val)) ? parseFloat(val).toFixed(2).replace(/[.,]00$/, "") : '-';
+                    cellStyle = 'text-gray-400';
+                } else {
+                    // RANK DATA
+                    const rank = player[cat + '_cat_rank'];
+                    displayValue = (rank !== null && rank !== undefined) ? Math.round(rank) : '-';
+                    const color = getHeatmapColor(rank);
+                    cellStyle = `background-color: ${color}; color: #1f2937; font-weight: 600;`;
                 }
-                const color = getHeatmapColor(rank);
-                tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-center font-semibold text-gray-600" style="background-color: ${color};">${rank}</td>`;
+
+                tableHtml += `<td class="px-2 py-1 text-center text-sm ${cellStyle}" style="${cellStyle.includes(':') ? cellStyle : ''}">${displayValue}</td>`;
             });
+
             tableHtml += `</tr>`;
         });
 
         tableHtml += `</tbody></table></div></div>`;
         return tableHtml;
     }
-    // --- [END] NEW HELPER FUNCTION ---
+
 
 
     function renderOptimalLineups(dailyLineups, lineupSettings) {
