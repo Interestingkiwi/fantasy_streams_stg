@@ -2384,7 +2384,7 @@ def get_trade_helper_data():
 def get_trade_helper_league_roster_data():
     """
     Fetches ALL rostered players, including Raw Stats, Ranks, and PP Stats.
-    Fixed: Quotes column names to handle special characters like 'TOI/G'.
+    Fixed: Quotes column names ONCE to handle special characters like 'TOI/G'.
     """
     league_id = session.get('league_id')
     data = request.get_json()
@@ -2422,9 +2422,6 @@ def get_trade_helper_league_roster_data():
             'total_ppGoals', 'team_games_played'
         ]
 
-        # Add Raw Stats (Categories + Base Goalie Stats)
-        raw_stat_cols = list(set(all_scoring_categories) | {'GA', 'SV', 'SA', 'TOI/G'})
-
         # 4. Get all players
         cursor.execute("""
             SELECT
@@ -2444,13 +2441,18 @@ def get_trade_helper_league_roster_data():
 
         # 6. Get Ranks AND Stats
         cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
-        raw_stat_columns = [f'"{cat}"' for cat in all_scoring_categories]
+
+        # --- FIX: Define raw stats WITHOUT quotes here ---
+        raw_stats_to_fetch = list(set(all_scoring_categories) | {'GA', 'SV', 'SA', 'TOI/G'})
+
         valid_normalized_names = [p.get('player_name_normalized') for p in all_players if p.get('player_name_normalized')]
 
         if valid_normalized_names:
-            cols_to_select = list(set(cat_rank_columns + pp_cols + raw_stat_columns))
+            # Combine all column names (plain strings)
+            cols_to_select = list(set(cat_rank_columns + pp_cols + raw_stats_to_fetch))
 
-            # --- FIX: Quote columns to handle special chars like '/' ---
+            # --- FIX: Quote columns ONCE here ---
+            # This turns G into "G" and TOI/G into "TOI/G"
             quoted_cols = [f'"{col}"' for col in cols_to_select]
 
             placeholders = ','.join('?' for _ in valid_normalized_names)
