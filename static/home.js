@@ -13,7 +13,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Global Cat Rank Modal Logic ---
-    // Use event delegation for close button to prevent staleness
     document.addEventListener('click', (e) => {
         const modal = document.getElementById('global-cat-rank-modal');
         if (!modal) return;
@@ -22,16 +21,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Global function to open modal (Always fetches fresh DOM element)
+    // Global function to open modal
     window.openCatRankModal = function(playerObj, categories) {
         const modal = document.getElementById('global-cat-rank-modal');
         const modalContent = document.getElementById('global-modal-content');
         const modalTitle = document.getElementById('global-modal-title');
 
-        if (!modal || !modalContent) {
-            console.error("Global modal element not found!");
-            return;
-        }
+        if (!modal || !modalContent) return;
 
         const showingRawMain = localStorage.getItem('showRawData') === 'true';
         const showRanksInModal = showingRawMain; // Inverse logic
@@ -96,34 +92,41 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // --- FIX: REMOVED THE MODAL FROM THIS STRING ---
+            // --- FIX: REORGANIZED LAYOUT (Stacked) ---
             dropdownContainer.innerHTML = `
-                <div class="flex items-center gap-2">
-                    <label for="week-select" class="text-sm font-medium text-gray-300">Fantasy Week:</label>
-                    <select id="week-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
-                        <option selected>Choose a week</option>
-                    </select>
+                <div class="flex flex-col gap-2">
+                    <div class="flex items-center gap-2 justify-end">
+                        <label for="week-select" class="text-sm font-medium text-gray-300 w-24 text-right">Fantasy Week:</label>
+                        <select id="week-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-48 p-2">
+                            <option selected>Choose a week</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2 justify-end">
+                        <label for="your-team-select" class="text-sm font-medium text-gray-300 w-24 text-right">Your Team:</label>
+                        <select id="your-team-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-48 p-2">
+                            <option selected>Choose your team</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="flex items-center gap-2">
-                    <label for="your-team-select" class="text-sm font-medium text-gray-300">Your Team:</label>
-                    <select id="your-team-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
-                        <option selected>Choose your team</option>
-                    </select>
-                </div>
-                <div class="flex items-center gap-2">
-                    <label for="stat-sourcing-select" class="text-sm font-medium text-gray-300">Stat Sourcing:</label>
-                    <select id="stat-sourcing-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
-                        <option value="projected">Projected ROS</option>
-                        <option value="todate">Season To Date</option>
-                        <option value="combined">Combined</option>
-                    </select>
-                </div>
-                <div class="flex items-center gap-2 bg-gray-800 py-2 px-4 rounded-lg border border-gray-600 shadow-sm ml-auto">
-                    <input type="checkbox" id="global-show-raw-data" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-500 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer">
-                    <label for="global-show-raw-data" class="text-sm font-medium text-gray-300 cursor-pointer select-none">Show Raw Data</label>
+
+                <div class="flex flex-col gap-2">
+                    <div class="flex items-center gap-2 justify-end">
+                        <label for="stat-sourcing-select" class="text-sm font-medium text-gray-300 w-24 text-right">Stat Sourcing:</label>
+                        <select id="stat-sourcing-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-48 p-2">
+                            <option value="projected">Projected ROS</option>
+                            <option value="todate">Season To Date</option>
+                            <option value="combined">Combined</option>
+                        </select>
+                    </div>
+                    <div class="flex justify-end">
+                        <div class="flex items-center gap-2 bg-gray-800 py-1.5 px-4 rounded-lg border border-gray-600 shadow-sm w-48 justify-center">
+                            <input type="checkbox" id="global-show-raw-data" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-500 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer">
+                            <label for="global-show-raw-data" class="text-sm font-medium text-gray-300 cursor-pointer select-none">Show Raw Data</label>
+                        </div>
+                    </div>
                 </div>
             `;
-            dropdownContainer.classList.add('flex', 'items-center', 'gap-4');
+            dropdownContainer.className = 'flex items-start gap-6'; // Ensure flex and spacing
 
             pageData = data;
             populateDropdowns();
@@ -154,14 +157,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // ... (Rest of file: populateDropdowns, populateStatSourcingDropdown, handlers remain unchanged) ...
     function populateDropdowns() {
         const weekSelect = document.getElementById('week-select');
         const yourTeamSelect = document.getElementById('your-team-select');
-        weekSelect.innerHTML = pageData.weeks.map(w => `<option value="${w.week_num}">Week ${w.week_num} (${w.start_date} to ${w.end_date})</option>`).join('');
-        yourTeamSelect.innerHTML = pageData.teams.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+
+        weekSelect.innerHTML = pageData.weeks.map(week => `<option value="${week.week_num}">Week ${week.week_num} (${week.start_date} to ${week.end_date})</option>`).join('');
+        yourTeamSelect.innerHTML = pageData.teams.map(team => `<option value="${team.name}">${team.name}</option>`).join('');
+
         const savedTeam = localStorage.getItem('selectedTeam');
         if (savedTeam) yourTeamSelect.value = savedTeam;
+
         if (!sessionStorage.getItem('fantasySessionStarted')) {
             const currentWeek = pageData.current_week;
             weekSelect.value = currentWeek;
@@ -177,6 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function populateStatSourcingDropdown() {
         const statSourcingSelect = document.getElementById('stat-sourcing-select');
         if (!statSourcingSelect) return;
+
         const savedStatSourcing = localStorage.getItem('selectedStatSourcing');
         if (savedStatSourcing) {
             statSourcingSelect.value = savedStatSourcing;
