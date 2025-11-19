@@ -1,5 +1,4 @@
 (async function() {
-    // A short delay to ensure the page elements are in the DOM
     await new Promise(resolve => setTimeout(resolve, 0));
 
     const errorDiv = document.getElementById('db-error-message');
@@ -12,70 +11,22 @@
     const yourTeamSelect = document.getElementById('your-team-select');
     const simLogContainer = document.getElementById('simulated-moves-log');
     const SIMULATION_KEY = 'simulationCache';
-
-    let pageData = null; // To store weeks and teams
     const CATEGORY_PREF_KEY = 'lineupCategoryPreferences';
-    let allScoringCategories = []; // Store all categories
-    let checkedCategories = []; // Store currently checked categories
+
+    let pageData = null;
+    let allScoringCategories = [];
+    let checkedCategories = [];
     let simulatedMoves = [];
     let skaterCategories = [];
     let goalieCategories = [];
     let currentRosterData = null;
 
-    // --- [START] Helper Functions ---
-    function formatPercentage(decimal) {
-        if (decimal === null || decimal === undefined) return 'N/A';
-        try {
-            const num = parseFloat(decimal);
-            if (isNaN(num)) return 'N/A';
-            return (num * 100).toFixed(1) + '%';
-        } catch (e) {
-            return 'N/A';
-        }
-    }
-
-    function formatSecondsToMMSS(seconds) {
-        if (seconds === null || seconds === undefined) return 'N/A';
-        try {
-            const s = parseInt(seconds, 10);
-            if (isNaN(s)) return 'N/A';
-            const minutes = Math.floor(s / 60);
-            const remainingSeconds = s % 60;
-            return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
-        } catch (e) {
-            return 'N/A';
-        }
-    }
-
-    function formatNullable(value) {
-        return value ?? 'N/A';
-    }
-
-    // NEW Helper for opponent modal
-    function formatNumber(value, decimals, defaultVal = 'N/A') {
-        if (value === null || value === undefined) return defaultVal;
-        try {
-            const num = parseFloat(value);
-            if (isNaN(num)) return defaultVal;
-            return num.toFixed(decimals);
-        } catch (e) {
-            return defaultVal;
-        }
-    }
-    // --- [END] Helper Functions ---
-
-
-    function getHeatmapColor(rank) {
-        if (rank === null || rank === undefined || rank === '-') {
-            return ''; // No color for empty ranks
-        }
-        const minRank = 1;
-        const maxRank = 20;
-        const clampedRank = Math.max(minRank, Math.min(rank, maxRank));
-        const percentage = (clampedRank - minRank) / (maxRank - minRank);
-        const hue = (1 - percentage) * 120;
-        return `hsl(${hue}, 65%, 75%)`;
-    }
+    // --- Helper Functions ---
+    function formatPercentage(decimal) { if (decimal == null) return 'N/A'; try { const num = parseFloat(decimal); if (isNaN(num)) return 'N/A'; return (num * 100).toFixed(1) + '%'; } catch (e) { return 'N/A'; } }
+    function formatSecondsToMMSS(seconds) { if (seconds == null) return 'N/A'; try { const s = parseInt(seconds, 10); if (isNaN(s)) return 'N/A'; const m = Math.floor(s / 60); const rs = s % 60; return `${m}:${rs < 10 ? '0' : ''}${rs}`; } catch (e) { return 'N/A'; } }
+    function formatNullable(value) { return value ?? 'N/A'; }
+    function formatNumber(value, decimals, defaultVal = 'N/A') { if (value == null) return defaultVal; try { const num = parseFloat(value); if (isNaN(num)) return defaultVal; return num.toFixed(decimals); } catch (e) { return defaultVal; } }
+    function getHeatmapColor(rank) { if (rank == null || rank === '-') return ''; const min = 1, max = 20; const clamped = Math.max(min, Math.min(rank, max)); const pct = (clamped - min) / (max - min); const hue = (1 - pct) * 120; return `hsl(${hue}, 65%, 75%)`; }
 
     async function init() {
         try {
@@ -230,7 +181,10 @@
                                 <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">#</th>
                                 <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">Starts</th>
                                 <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">Next Wk</th>
-                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">PP Util</th>
+                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase">
+                                    PP Util
+                                    <span class="text-xs text-gray-400 font-light block">(Click cell)</span>
+                                </th>
                                 <th class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase">Total Rank</th>
         `;
         (categories || []).forEach(cat => {
@@ -250,8 +204,7 @@
             const opponentsList = (player.opponents_list || []).join(', ');
             const opponentStatsJson = JSON.stringify(player.opponent_stats_this_week || []);
 
-            let catRankSum = 0;
-            let validRanks = 0;
+            let catRankSum = 0, validRanks = 0;
             (categories || []).forEach(cat => {
                 const r = player[cat + '_cat_rank'];
                 if (r != null) { catRankSum += r; validRanks++; }
@@ -283,8 +236,7 @@
                         ${formatPercentage(player.avg_ppTimeOnIcePctPerGame)}
                     </td>
 
-                    <td class="px-2 py-1 text-center font-bold text-blue-400 cursor-pointer hover:text-blue-300 cat-rank-cell"
-                        data-player-id="${player.player_id}">
+                    <td class="px-2 py-1 text-center font-bold text-blue-400 cursor-pointer hover:text-blue-300 cat-rank-cell" data-player-id="${player.player_id}">
                         ${validRanks > 0 ? Math.round(catRankSum) : '-'}
                     </td>
             `;
@@ -307,138 +259,6 @@
 
         tableHtml += `</tbody></table></div></div>`;
         return tableHtml;
-    }
-
-
-
-    function renderOptimalLineups(dailyLineups, lineupSettings) {
-        let finalHtml = '<div class="flex flex-wrap gap-4 justify-center">'; // Flex container
-        const positionOrder = ['C', 'LW', 'RW', 'D', 'G'];
-
-        const sortedDays = Object.keys(dailyLineups).sort((a, b) => {
-            const currentYear = new Date().getFullYear();
-            const dateA = new Date(`${a}, ${currentYear}`);
-            const dateB = new Date(`${b}, ${currentYear}`);
-            return dateA - dateB;
-        });
-
-        sortedDays.forEach(day => {
-            const lineup = dailyLineups[day];
-            let tableHtml = `
-                <div class="bg-gray-900 rounded-lg shadow flex-grow" style="min-width: 300px;">
-                    <h2 class="text-xl font-bold text-white p-3 bg-gray-800 rounded-t-lg">${day}</h2>
-                    <table class="w-full divide-y divide-gray-700">
-                        <thead class="bg-gray-700/50">
-                            <tr>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Position</th>
-                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Player Name</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-gray-800 divide-y divide-gray-700">
-            `;
-            positionOrder.forEach(pos => {
-                const numSlots = lineupSettings[pos] || 0;
-                const playersInPos = lineup[pos] || [];
-                for (let i = 0; i < numSlots; i++) {
-                    const player = playersInPos[i];
-                    if (player) {
-                        tableHtml += `
-                            <tr class="hover:bg-gray-700/50">
-                                <td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${pos}</td>
-                                <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.player_name}</td>
-                            </tr>
-                        `;
-                    } else {
-                        tableHtml += `
-                            <tr class="hover:bg-gray-700/50">
-                                <td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${pos}</td>
-                                <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-500 italic">(Empty)</td>
-                            </tr>
-                        `;
-                    }
-                }
-            });
-            tableHtml += `</tbody></table></div>`;
-            finalHtml += tableHtml;
-        });
-
-        if (sortedDays.length === 0) {
-            optimalLineupContainer.innerHTML = '<p class="text-gray-400">No games scheduled for active players this week.</p>';
-        } else {
-            finalHtml += '</div>';
-            optimalLineupContainer.innerHTML = finalHtml;
-        }
-    }
-
-    function renderUnusedRosterSpotsTable(unusedSpotsData) {
-        if (!unusedSpotsData) {
-            unusedRosterSpotsContainer.innerHTML = '';
-            return;
-        }
-        const positionOrder = ['C', 'LW', 'RW', 'D', 'G'];
-        const dayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        const sortedDays = Object.keys(unusedSpotsData).sort((a, b) => dayOrder.indexOf(a) - dayOrder.indexOf(b));
-
-        let tableHtml = `
-            <div class="bg-gray-900 rounded-lg shadow mt-6">
-                <h2 class="text-xl font-bold text-white p-3 bg-gray-800 rounded-t-lg">Unused Roster Spots</h2>
-                <div class="overflow-x-auto">
-                    <table class="divide-y divide-gray-700">
-                        <thead class="bg-gray-700/50">
-                            <tr>
-                                <th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Day</th>
-                                ${positionOrder.map(pos => `<th class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider">${pos}</th>`).join('')}
-                            </tr>
-                        </thead>
-                        <tbody class="bg-gray-800 divide-y divide-gray-700">
-        `;
-        sortedDays.forEach(day => {
-            tableHtml += `<tr class="hover:bg-gray-700/50">
-                <td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${day}</td>`;
-            positionOrder.forEach(pos => {
-                const value = unusedSpotsData[day][pos];
-                const stringValue = String(value);
-                const highlightClass = (stringValue !== '0') ? 'bg-green-200 text-gray-900' : 'text-gray-300';
-                tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-center ${highlightClass}">${value}</td>`;
-            });
-            tableHtml += `</tr>`;
-        });
-        tableHtml += `</tbody></table></div></div>`;
-        unusedRosterSpotsContainer.innerHTML = tableHtml;
-    }
-
-    function renderSimulatedMovesLog() {
-        if (!simLogContainer) return;
-        if (simulatedMoves.length === 0) {
-            simLogContainer.innerHTML = '';
-            return;
-        }
-        const sortedMoves = [...simulatedMoves].sort((a, b) => (a.date < b.date) ? -1 : 1);
-        let logHtml = `
-            <p class="text-sm text-gray-400 italic mb-2">Lineups assume the below planned transactions are made.</p>
-            <h4 class="text-lg font-semibold text-white mt-6 mb-2">Simulated Moves Log</h4>
-            <div class="overflow-x-auto bg-gray-800 rounded-lg shadow">
-                <table class="min-w-full divide-y divide-gray-700">
-                    <thead class="bg-gray-700/50">
-                        <tr>
-                            <th class="px-3 py-2 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Date of Move</th>
-                            <th class="px-3 py-2 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Player Added</th>
-                            <th class="px-3 py-2 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Player Dropped</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-gray-800 divide-y divide-gray-700">
-        `;
-        sortedMoves.forEach(move => {
-            logHtml += `
-                <tr class="hover:bg-gray-700/50">
-                    <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-300">${move.date}</td>
-                    <td class="px-3 py-2 whitespace-nowrap text-sm text-green-400">${move.added_player.player_name}</td>
-                    <td class="px-3 py-2 whitespace-nowrap text-sm text-red-400">${move.dropped_player.player_name}</td>
-                </tr>
-            `;
-        });
-        logHtml += `</tbody></table></div>`;
-        simLogContainer.innerHTML = logHtml;
     }
 
     function renderCategoryCheckboxes() {
@@ -494,10 +314,10 @@
         // --- COMBINED MODAL HANDLER ---
         tableContainer.addEventListener('click', (e) => {
 
-            // 1. Handle Cat Rank Cell (New)
+            // 1. Handle Cat Rank Cell
             const rankCell = e.target.closest('.cat-rank-cell');
             if (rankCell && currentRosterData) {
-                const pid = parseInt(rankCell.dataset.playerId); // Match type (usually int)
+                const pid = parseInt(rankCell.dataset.playerId);
                 const player = currentRosterData.players.find(p => p.player_id == pid);
 
                 if (player && window.openCatRankModal) {
@@ -508,7 +328,7 @@
                 return;
             }
 
-            // 2. Handle PP Util Cell (Existing)
+            // 2. Handle PP Util Cell
             const ppCell = e.target.closest('.pp-util-cell');
             if (ppCell) {
                 const data = ppCell.dataset;
@@ -522,12 +342,12 @@
                 return;
             }
 
-            // 3. Handle Opponent Cell (Existing)
+            // 3. Handle Opponent Cell
             const oppCell = e.target.closest('.opponent-stats-cell');
             if (oppCell) {
                 const data = oppCell.dataset;
                 const isGoalie = data.isGoalie === 'true';
-                const stats = JSON.parse(data.opponentStats);
+                const stats = JSON.parse(data.opponentStats || '[]'); // Safety fallback
                 document.getElementById('opponent-modal-title').textContent = `${data.playerName} - Opponent Stats`;
 
                 let headers, statKeys, totalAvgs;
@@ -573,6 +393,147 @@
                 document.getElementById('opponent-stats-modal').classList.remove('hidden');
             }
         });
+    }
+
+    function renderCategoryCheckboxes() { /* ... */
+        let checkboxHtml = `
+            <div class="flex justify-between items-center mb-2">
+                <label class="block text-sm font-medium text-gray-300">Update Lineup Priority Based On:</label>
+                <div>
+                    <button id="check-all-btn" class="text-xs bg-gray-600 hover:bg-gray-500 text-white py-1 px-2 rounded mr-2 transition-colors duration-150">Check All</button>
+                    <button id="uncheck-all-btn" class="text-xs bg-gray-600 hover:bg-gray-500 text-white py-1 px-2 rounded transition-colors duration-150">Uncheck All</button>
+                </div>
+            </div>
+            <div class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 mb-4">
+        `;
+        allScoringCategories.forEach(cat => {
+            const isChecked = checkedCategories.includes(cat);
+            checkboxHtml += `
+                <div class="flex items-center">
+                    <input id="cat-${cat}" name="category" type="checkbox" value="${cat}" ${isChecked ? 'checked' : ''} class="h-4 w-4 bg-gray-700 border-gray-600 text-indigo-600 focus:ring-indigo-500 rounded">
+                    <label for="cat-${cat}" class="ml-2 block text-sm text-gray-300">${cat}</label>
+                </div>
+            `;
+        });
+        checkboxHtml += '</div>';
+
+        checkboxHtml += `
+            <button id="update-lineups-btn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded transition-colors duration-150">
+                Update Lineups
+            </button>
+        `;
+        checkboxesContainer.innerHTML = checkboxHtml;
+
+        document.getElementById('check-all-btn').addEventListener('click', () => {
+            document.querySelectorAll('#category-checkboxes-container input[name="category"]').forEach(cb => cb.checked = true);
+        });
+
+        document.getElementById('uncheck-all-btn').addEventListener('click', () => {
+            document.querySelectorAll('#category-checkboxes-container input[name="category"]').forEach(cb => cb.checked = false);
+        });
+
+        document.getElementById('update-lineups-btn').addEventListener('click', () => {
+            const currentChecked = Array.from(
+                document.querySelectorAll('#category-checkboxes-container input[name="category"]:checked')
+            ).map(cb => cb.value);
+            localStorage.setItem(CATEGORY_PREF_KEY, JSON.stringify(currentChecked));
+            fetchAndRenderTable();
+        });
+    }
+
+    function renderOptimalLineups(dailyLineups, lineupSettings) { /* ... */
+        let finalHtml = '<div class="flex flex-wrap gap-4 justify-center">';
+        const positionOrder = ['C', 'LW', 'RW', 'D', 'G'];
+        const sortedDays = Object.keys(dailyLineups).sort((a, b) => {
+            const currentYear = new Date().getFullYear();
+            const dateA = new Date(`${a}, ${currentYear}`);
+            const dateB = new Date(`${b}, ${currentYear}`);
+            return dateA - dateB;
+        });
+
+        sortedDays.forEach(day => {
+            const lineup = dailyLineups[day];
+            let tableHtml = `
+                <div class="bg-gray-900 rounded-lg shadow flex-grow" style="min-width: 300px;">
+                    <h2 class="text-xl font-bold text-white p-3 bg-gray-800 rounded-t-lg">${day}</h2>
+                    <table class="w-full divide-y divide-gray-700">
+                        <thead class="bg-gray-700/50">
+                            <tr>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Position</th>
+                                <th scope="col" class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Player Name</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-gray-800 divide-y divide-gray-700">
+            `;
+            positionOrder.forEach(pos => {
+                const numSlots = lineupSettings[pos] || 0;
+                const playersInPos = lineup[pos] || [];
+                for (let i = 0; i < numSlots; i++) {
+                    const player = playersInPos[i];
+                    if (player) {
+                        tableHtml += `<tr class="hover:bg-gray-700/50"><td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${pos}</td><td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${player.player_name}</td></tr>`;
+                    } else {
+                        tableHtml += `<tr class="hover:bg-gray-700/50"><td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${pos}</td><td class="px-2 py-1 whitespace-nowrap text-sm text-gray-500 italic">(Empty)</td></tr>`;
+                    }
+                }
+            });
+            tableHtml += `</tbody></table></div>`;
+            finalHtml += tableHtml;
+        });
+
+        if (sortedDays.length === 0) {
+            optimalLineupContainer.innerHTML = '<p class="text-gray-400">No games scheduled for active players this week.</p>';
+        } else {
+            finalHtml += '</div>';
+            optimalLineupContainer.innerHTML = finalHtml;
+        }
+    }
+
+    function renderUnusedRosterSpotsTable(unusedSpotsData) { /* ... */
+        if (!unusedSpotsData) { unusedRosterSpotsContainer.innerHTML = ''; return; }
+        const positionOrder = ['C', 'LW', 'RW', 'D', 'G'];
+        const dayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        const sortedDays = Object.keys(unusedSpotsData).sort((a, b) => dayOrder.indexOf(a) - dayOrder.indexOf(b));
+
+        let tableHtml = `
+            <div class="bg-gray-900 rounded-lg shadow mt-6">
+                <h2 class="text-xl font-bold text-white p-3 bg-gray-800 rounded-t-lg">Unused Roster Spots</h2>
+                <div class="overflow-x-auto">
+                    <table class="divide-y divide-gray-700">
+                        <thead class="bg-gray-700/50"><tr><th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Day</th>${positionOrder.map(pos => `<th class="px-2 py-1 text-center text-xs font-bold text-gray-300 uppercase tracking-wider">${pos}</th>`).join('')}</tr></thead>
+                        <tbody class="bg-gray-800 divide-y divide-gray-700">
+        `;
+        sortedDays.forEach(day => {
+            tableHtml += `<tr class="hover:bg-gray-700/50"><td class="px-2 py-1 whitespace-nowrap text-sm font-medium text-gray-300">${day}</td>`;
+            positionOrder.forEach(pos => {
+                const value = unusedSpotsData[day][pos];
+                const stringValue = String(value);
+                const highlightClass = (stringValue !== '0') ? 'bg-green-200 text-gray-900' : 'text-gray-300';
+                tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-center ${highlightClass}">${value}</td>`;
+            });
+            tableHtml += `</tr>`;
+        });
+        tableHtml += `</tbody></table></div></div>`;
+        unusedRosterSpotsContainer.innerHTML = tableHtml;
+    }
+
+    function renderSimulatedMovesLog() { /* ... */
+        if (!simLogContainer) return;
+        if (simulatedMoves.length === 0) { simLogContainer.innerHTML = ''; return; }
+        const sortedMoves = [...simulatedMoves].sort((a, b) => (a.date < b.date) ? -1 : 1);
+        let logHtml = `
+            <p class="text-sm text-gray-400 italic mb-2">Lineups assume the below planned transactions are made.</p>
+            <h4 class="text-lg font-semibold text-white mt-6 mb-2">Simulated Moves Log</h4>
+            <div class="overflow-x-auto bg-gray-800 rounded-lg shadow">
+                <table class="min-w-full divide-y divide-gray-700">
+                    <thead class="bg-gray-700/50"><tr><th class="px-3 py-2 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Date of Move</th><th class="px-3 py-2 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Player Added</th><th class="px-3 py-2 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">Player Dropped</th></tr></thead>
+                    <tbody class="bg-gray-800 divide-y divide-gray-700">
+        `;
+        sortedMoves.forEach(move => {
+            logHtml += `<tr class="hover:bg-gray-700/50"><td class="px-3 py-2 whitespace-nowrap text-sm text-gray-300">${move.date}</td><td class="px-3 py-2 whitespace-nowrap text-sm text-green-400">${move.added_player.player_name}</td><td class="px-3 py-2 whitespace-nowrap text-sm text-red-400">${move.dropped_player.player_name}</td></tr>`;
+        });
+        logHtml += `</tbody></table></div>`;
+        simLogContainer.innerHTML = logHtml;
     }
 
     init();

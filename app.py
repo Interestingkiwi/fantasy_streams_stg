@@ -2890,7 +2890,6 @@ def get_roster_data():
         end_date = datetime.strptime(week_dates['end_date'], '%Y-%m-%d').date()
         days_in_week = [(start_date + timedelta(days=i)) for i in range((end_date - start_date).days + 1)]
 
-        # --- [START] MODIFICATION: Only fetch team_stats_map. Schedule is removed. ---
         team_stats_map = {}
         cursor.execute("SELECT * FROM team_stats_summary")
         for row in cursor.fetchall():
@@ -2901,9 +2900,7 @@ def get_roster_data():
             team_tricode = row['team_tricode']
             if team_tricode in team_stats_map:
                 team_stats_map[team_tricode].update(dict(row))
-        # --- [END] MODIFICATION ---
 
-        # --- MODIFIED: Pass only team_stats_map ---
         active_players = _get_ranked_roster_for_week(cursor, team_id, week_num, team_stats_map, sourcing)
 
         cursor.execute("""
@@ -2916,16 +2913,21 @@ def get_roster_data():
         all_players_raw = cursor.fetchall()
         all_players = decode_dict_values([dict(row) for row in all_players_raw])
 
-        # ... (rest of function is unchanged) ...
-
         if simulated_moves:
             dropped_player_ids = {int(m['dropped_player']['player_id']) for m in simulated_moves}
             all_players = [p for p in all_players if int(p.get('player_id', 0)) not in dropped_player_ids]
             for move in simulated_moves:
                 all_players.append(move['added_player'])
 
+        # --- [START] COLUMN DEFINITIONS ---
         cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
+        # Quote columns to handle special chars like "TOI/G"
         raw_stat_columns = [f'"{cat}"' for cat in all_scoring_categories]
+
+        # Note: We need to create a list of 'clean' keys to access the dict later,
+        # matching the quoted columns in the SQL.
+        raw_stat_keys = all_scoring_categories
+
         all_cols = list(set(cat_rank_columns + raw_stat_columns))
         pp_stat_columns = [
             'avg_ppTimeOnIcePctPerGame', 'lg_ppTimeOnIce', 'lg_ppTimeOnIcePctPerGame',
@@ -2940,16 +2942,20 @@ def get_roster_data():
         if valid_normalized_names:
             placeholders = ','.join('?' for _ in valid_normalized_names)
             columns_to_select = all_cols + pp_stat_columns
+
             query = f"""
                 SELECT player_name_normalized, {', '.join(columns_to_select)}
                 FROM {stat_table} j WHERE player_name_normalized IN ({placeholders})
             """
             cursor.execute(query, valid_normalized_names)
             player_stats = {row['player_name_normalized']: dict(row) for row in cursor.fetchall()}
+        # --- [END] COLUMN DEFINITIONS ---
 
         player_custom_rank_map = {}
         active_player_map = {p['player_name']: p for p in active_players}
+
         for player in all_players:
+            # Merge active player schedule info
             if player['player_name'] in active_player_map:
                 source = active_player_map[player['player_name']]
                 player['total_rank'] = source.get('total_rank')
@@ -2967,7 +2973,9 @@ def get_roster_data():
 
             p_stats = player_stats.get(player.get('player_name_normalized'))
             new_total_rank = 0
+
             if p_stats:
+                # 1. Add Ranks
                 for cat in all_scoring_categories:
                     rank_key = f"{cat}_cat_rank"
                     rank_value = p_stats.get(rank_key)
@@ -2978,12 +2986,22 @@ def get_roster_data():
                         else:
                             new_total_rank += rank_value
 
+                # 2. Add PP Stats
                 for col in pp_stat_columns:
                     player[col] = p_stats.get(col)
+
+                # 3. --- [FIX] Add Raw Stats ---
+                for cat in all_scoring_categories:
+                    # The dict key from SQL will match the column name.
+                    # If we quoted it as "TOI/G", sqlite returns 'TOI/G' as key usually.
+                    player[cat] = p_stats.get(cat)
+                # ----------------------------
 
             player['total_rank'] = round(new_total_rank, 2) if p_stats else None
             if player.get('player_id'):
                 player_custom_rank_map[int(player['player_id'])] = player['total_rank']
+
+        # ... (rest of the function: lineup settings, daily optimal lineups, etc.)
 
         logging.info("Updating ranks for active_players list...")
         for player in active_players:

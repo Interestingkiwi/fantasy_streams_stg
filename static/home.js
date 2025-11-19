@@ -4,16 +4,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const dropdownContainer = document.getElementById('dropdown-container');
 
     // --- FIX: Event Delegation for Raw Data Toggle ---
-    // This ensures the listener works even after initDropdowns overwrites the HTML
     document.addEventListener('change', (e) => {
         if (e.target && e.target.id === 'global-show-raw-data') {
             const val = e.target.checked;
             localStorage.setItem('showRawData', val);
+            // Notify all other scripts
             window.dispatchEvent(new CustomEvent('rawDataToggled', { detail: { showRaw: val } }));
         }
     });
 
-    // --- Global Modal Logic ---
+    // --- Global Cat Rank Modal ---
     const modal = document.getElementById('global-cat-rank-modal');
     const closeBtn = document.getElementById('global-modal-close');
     const modalContent = document.getElementById('global-modal-content');
@@ -24,11 +24,12 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.onclick = (e) => { if (e.target === modal) modal.classList.add('hidden'); };
     }
 
+    // Global function to open modal
     window.openCatRankModal = function(playerObj, categories) {
         if (!modal || !modalContent) return;
 
         const showingRawMain = localStorage.getItem('showRawData') === 'true';
-        const showRanksInModal = showingRawMain;
+        const showRanksInModal = showingRawMain; // Inverse logic
 
         modalTitle.textContent = `${playerObj.player_name || 'Player'} - ${showRanksInModal ? 'Category Ranks' : 'Raw Stats'}`;
 
@@ -92,6 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // Re-build HTML, ensuring all controls are present
             dropdownContainer.innerHTML = `
                 <div class="flex items-center gap-2">
                     <label for="week-select" class="text-sm font-medium text-gray-300">Fantasy Week:</label>
@@ -124,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
             populateDropdowns();
             populateStatSourcingDropdown();
 
-            // --- FIX: Restore Checkbox State after re-rendering HTML ---
+            // Restore Checkbox State
             const showRawCheckbox = document.getElementById('global-show-raw-data');
             if (showRawCheckbox) {
                 showRawCheckbox.checked = localStorage.getItem('showRawData') === 'true';
