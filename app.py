@@ -2850,59 +2850,68 @@ def get_roster_data():
     team_name = data.get('team_name')
     simulated_moves = data.get('simulated_moves', [])
 
-    if not week_num_str:
-        return jsonify({'error': 'Week number is required.'}), 400
+    if not week_num_str: return jsonify({'error': 'Week number is required.'}), 400
     try:
         week_num = int(week_num_str)
-    except ValueError:
-        return jsonify({'error': 'Invalid week number format.'}), 400
+    except ValueError: return jsonify({'error': 'Invalid week number format.'}), 400
 
     conn, error_msg = get_db_connection_for_league(league_id)
-    if not conn:
-        return jsonify({'error': error_msg}), 404
+    if not conn: return jsonify({'error': error_msg}), 404
 
     try:
         cursor = conn.cursor()
 
+        # 1. Setup Categories
         cursor.execute("SELECT category, scoring_group FROM scoring ORDER BY scoring_group DESC, stat_id")
         all_categories_raw = cursor.fetchall()
         skater_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'offense']
         goalie_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'goaltending']
         all_scoring_categories = skater_categories + goalie_categories
 
-        checked_categories = data.get('categories')
-        if checked_categories is None:
-            checked_categories = all_scoring_categories
-
+        checked_categories = data.get('categories') or all_scoring_categories
         unchecked_categories = [cat for cat in all_scoring_categories if cat not in checked_categories]
 
+        # 2. Get Team ID
         cursor.execute("SELECT team_id FROM teams WHERE CAST(name AS TEXT) = ?", (team_name,))
         team_id_row = cursor.fetchone()
-        if not team_id_row:
-            return jsonify({'error': f'Team not found: {team_name}'}), 404
+        if not team_id_row: return jsonify({'error': f'Team not found: {team_name}'}), 404
         team_id = team_id_row['team_id']
 
+        # 3. Get Week Dates
         cursor.execute("SELECT start_date, end_date FROM weeks WHERE week_num = ?", (week_num,))
         week_dates = cursor.fetchone()
-        if not week_dates:
-            return jsonify({'error': f'Week not found: {week_num}'}), 404
-        start_date = datetime.strptime(week_dates['start_date'], '%Y-%m-%d').date()
-        end_date = datetime.strptime(week_dates['end_date'], '%Y-%m-%d').date()
+        if not week_dates: return jsonify({'error': f'Week not found: {week_num}'}), 404
+        start_date_str = week_dates['start_date']
+        end_date_str = week_dates['end_date']
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
         days_in_week = [(start_date + timedelta(days=i)) for i in range((end_date - start_date).days + 1)]
 
+        cursor.execute("SELECT start_date, end_date FROM weeks WHERE week_num = ?", (week_num + 1,))
+        week_next = cursor.fetchone()
+
+        # 4. Fetch Schedule Data (Needed for Simulated Players)
+        schedule_this_week = []
+        cursor.execute("SELECT game_date, home_team, away_team FROM schedule WHERE game_date >= ? AND game_date <= ?", (start_date_str, end_date_str))
+        schedule_this_week = decode_dict_values([dict(row) for row in cursor.fetchall()])
+
+        schedule_next_week = []
+        if week_next:
+            cursor.execute("SELECT game_date, home_team, away_team FROM schedule WHERE game_date >= ? AND game_date <= ?", (week_next['start_date'], week_next['end_date']))
+            schedule_next_week = decode_dict_values([dict(row) for row in cursor.fetchall()])
+
+        # 5. Get Team Stats Map
         team_stats_map = {}
         cursor.execute("SELECT * FROM team_stats_summary")
-        for row in cursor.fetchall():
-            team_stats_map[row['team_tricode']] = dict(row)
-
+        for row in cursor.fetchall(): team_stats_map[row['team_tricode']] = dict(row)
         cursor.execute("SELECT * FROM team_stats_weekly")
         for row in cursor.fetchall():
-            team_tricode = row['team_tricode']
-            if team_tricode in team_stats_map:
-                team_stats_map[team_tricode].update(dict(row))
+            if row['team_tricode'] in team_stats_map: team_stats_map[row['team_tricode']].update(dict(row))
 
+        # 6. Get Base Roster (Active Players)
         active_players = _get_ranked_roster_for_week(cursor, team_id, week_num, team_stats_map, sourcing)
 
+        # 7. Get All Players (Base + Simulated)
         cursor.execute("""
             SELECT p.player_id, p.player_name, p.player_team as team, rp.eligible_positions, p.player_name_normalized, p.status
             FROM rosters_tall r
@@ -2914,20 +2923,21 @@ def get_roster_data():
         all_players = decode_dict_values([dict(row) for row in all_players_raw])
 
         if simulated_moves:
-            dropped_player_ids = {int(m['dropped_player']['player_id']) for m in simulated_moves}
-            all_players = [p for p in all_players if int(p.get('player_id', 0)) not in dropped_player_ids]
+            dropped_ids = {int(m['dropped_player']['player_id']) for m in simulated_moves}
+            all_players = [p for p in all_players if int(p.get('player_id', 0)) not in dropped_ids]
             for move in simulated_moves:
-                all_players.append(move['added_player'])
+                # Ensure added player has basic fields
+                added = move['added_player']
+                # Map fields if they differ (free agent object vs roster object)
+                if 'positions' in added and 'eligible_positions' not in added:
+                    added['eligible_positions'] = added['positions']
+                if 'player_team' in added and 'team' not in added:
+                    added['team'] = added['player_team']
+                all_players.append(added)
 
-        # --- [START] COLUMN DEFINITIONS ---
+        # 8. Fetch Stats & Ranks for EVERYONE (Base + Sim)
         cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
-        # Quote columns to handle special chars like "TOI/G"
         raw_stat_columns = [f'"{cat}"' for cat in all_scoring_categories]
-
-        # Note: We need to create a list of 'clean' keys to access the dict later,
-        # matching the quoted columns in the SQL.
-        raw_stat_keys = all_scoring_categories
-
         all_cols = list(set(cat_rank_columns + raw_stat_columns))
         pp_stat_columns = [
             'avg_ppTimeOnIcePctPerGame', 'lg_ppTimeOnIce', 'lg_ppTimeOnIcePctPerGame',
@@ -2935,92 +2945,84 @@ def get_roster_data():
             'total_ppGoals', 'team_games_played'
         ]
 
-        all_normalized_names = [p.get('player_name_normalized') for p in all_players]
-        valid_normalized_names = [name for name in all_normalized_names if name]
-
+        valid_names = [p.get('player_name_normalized') for p in all_players if p.get('player_name_normalized')]
         player_stats = {}
-        if valid_normalized_names:
-            placeholders = ','.join('?' for _ in valid_normalized_names)
-            columns_to_select = all_cols + pp_stat_columns
-
-            query = f"""
-                SELECT player_name_normalized, {', '.join(columns_to_select)}
-                FROM {stat_table} j WHERE player_name_normalized IN ({placeholders})
-            """
-            cursor.execute(query, valid_normalized_names)
+        if valid_names:
+            placeholders = ','.join('?' for _ in valid_names)
+            query = f"SELECT player_name_normalized, {', '.join(all_cols + pp_stat_columns)} FROM {stat_table} j WHERE player_name_normalized IN ({placeholders})"
+            cursor.execute(query, valid_names)
             player_stats = {row['player_name_normalized']: dict(row) for row in cursor.fetchall()}
-        # --- [END] COLUMN DEFINITIONS ---
 
+        # 9. Enrich All Players (Schedule + Stats)
         player_custom_rank_map = {}
-        active_player_map = {p['player_name']: p for p in active_players}
+        active_player_map = {p['player_name']: p for p in active_players} # Base roster only
 
         for player in all_players:
-            # Merge active player schedule info
+            # A. Schedule & Opponents
             if player['player_name'] in active_player_map:
+                # Copy pre-calculated data for existing players
                 source = active_player_map[player['player_name']]
-                player['total_rank'] = source.get('total_rank')
-                player['game_dates_this_week'] = source.get('game_dates_this_week', [])
-                player['games_this_week'] = source.get('games_this_week', [])
-                player['games_next_week'] = source.get('games_next_week', [])
-                player['opponents_list'] = source.get('opponents_list', [])
-                player['opponent_stats_this_week'] = source.get('opponent_stats_this_week', [])
+                for k in ['total_rank', 'game_dates_this_week', 'games_this_week', 'games_next_week', 'opponents_list', 'opponent_stats_this_week']:
+                    player[k] = source.get(k, [])
             else:
-                if 'games_this_week' not in player: player['games_this_week'] = []
-                if 'game_dates_this_week' not in player: player['game_dates_this_week'] = []
+                # --- NEW: Calculate for Simulated Players ---
+                player['games_this_week'] = []
+                player['game_dates_this_week'] = []
                 player['games_next_week'] = []
                 player['opponents_list'] = []
                 player['opponent_stats_this_week'] = []
 
-            p_stats = player_stats.get(player.get('player_name_normalized'))
+                p_team = player.get('team')
+                if p_team:
+                    # This Week
+                    p_games = [g for g in schedule_this_week if g['home_team'] == p_team or g['away_team'] == p_team]
+                    p_games.sort(key=lambda x: x['game_date'])
+                    for g in p_games:
+                        g_date = datetime.strptime(g['game_date'], '%Y-%m-%d').date()
+                        player['games_this_week'].append(g_date.strftime('%a'))
+                        player['game_dates_this_week'].append(g['game_date'])
+
+                        opp = g['away_team'] if g['home_team'] == p_team else g['home_team']
+                        player['opponents_list'].append(opp)
+
+                        opp_stats = team_stats_map.get(opp, {})
+                        player['opponent_stats_this_week'].append({
+                            'game_date': g_date.strftime('%a, %b %d'),
+                            'opponent_tricode': opp,
+                            **{k: opp_stats.get(k) for k in ['ga_gm', 'soga_gm', 'gf_gm', 'sogf_gm', 'pk_pct']}
+                        })
+
+                    # Next Week
+                    p_next = [g for g in schedule_next_week if g['home_team'] == p_team or g['away_team'] == p_team]
+                    p_next.sort(key=lambda x: x['game_date'])
+                    for g in p_next:
+                        g_date = datetime.strptime(g['game_date'], '%Y-%m-%d').date()
+                        player['games_next_week'].append(g_date.strftime('%a'))
+
+            # B. Stats & Ranks
+            p_data = player_stats.get(player.get('player_name_normalized'))
             new_total_rank = 0
-
-            if p_stats:
-                # 1. Add Ranks
+            if p_data:
                 for cat in all_scoring_categories:
-                    rank_key = f"{cat}_cat_rank"
-                    rank_value = p_stats.get(rank_key)
-                    player[rank_key] = round(rank_value, 2) if rank_value is not None else None
-                    if rank_value is not None:
-                        if cat in unchecked_categories:
-                            new_total_rank += rank_value / 10.0
-                        else:
-                            new_total_rank += rank_value
+                    # Rank
+                    r_val = p_data.get(f"{cat}_cat_rank")
+                    player[f"{cat}_cat_rank"] = r_val
+                    if r_val is not None:
+                        if cat in unchecked_categories: new_total_rank += r_val / 10.0
+                        else: new_total_rank += r_val
 
-                # 2. Add PP Stats
+                    # Raw Stat
+                    player[cat] = p_data.get(cat)
+
+                # PP Stats
                 for col in pp_stat_columns:
-                    player[col] = p_stats.get(col)
+                    player[col] = p_data.get(col)
 
-                # 3. --- [FIX] Add Raw Stats ---
-                for cat in all_scoring_categories:
-                    # The dict key from SQL will match the column name.
-                    # If we quoted it as "TOI/G", sqlite returns 'TOI/G' as key usually.
-                    player[cat] = p_stats.get(cat)
-                # ----------------------------
-
-            player['total_rank'] = round(new_total_rank, 2) if p_stats else None
+            player['total_rank'] = round(new_total_rank, 2) if p_data else None
             if player.get('player_id'):
                 player_custom_rank_map[int(player['player_id'])] = player['total_rank']
 
-        # ... (rest of the function: lineup settings, daily optimal lineups, etc.)
-
-        logging.info("Updating ranks for active_players list...")
-        for player in active_players:
-            custom_rank = player_custom_rank_map.get(int(player.get('player_id', 0)))
-            if custom_rank is not None:
-                player['total_rank'] = custom_rank
-            elif player.get('total_rank') is None:
-                player['total_rank'] = 60
-
-        logging.info("Updating ranks for simulated_moves list...")
-        for move in simulated_moves:
-            added_player = move['added_player']
-            custom_rank = player_custom_rank_map.get(int(added_player.get('player_id', 0)))
-            if custom_rank is not None:
-                added_player['total_rank'] = custom_rank
-            elif added_player.get('total_rank') is None:
-                added_player['total_rank'] = 60
-        logging.info("Finished updating ranks for active_players.")
-
+        # 10. Final Lineup/Usage Calc
         lineup_settings = {row['position']: row['position_count'] for row in cursor.execute("SELECT position, position_count FROM lineup_settings WHERE position NOT IN ('BN', 'IR', 'IR+')")}
 
         daily_optimal_lineups = {}
@@ -3028,25 +3030,26 @@ def get_roster_data():
 
         for day_date in days_in_week:
             day_str = day_date.strftime('%Y-%m-%d')
-            daily_active_roster = _get_daily_simulated_roster(active_players, simulated_moves, day_str)
+            # Pass ALL players (including sim) to roster calc
+            daily_active_roster = _get_daily_simulated_roster(all_players, simulated_moves, day_str)
+
             players_playing_today = []
             for p in daily_active_roster:
-                game_dates = p.get('game_dates_this_week') or p.get('game_dates_this_week_full', [])
-                if day_str in game_dates:
+                # Check if they have a game today
+                if day_str in p.get('game_dates_this_week', []):
                     players_playing_today.append(p)
 
             if players_playing_today:
-                optimal_lineup_for_day = get_optimal_lineup(players_playing_today, lineup_settings)
-                display_date = day_date.strftime('%A, %b %d')
-                daily_optimal_lineups[display_date] = optimal_lineup_for_day
-                for pos_players in optimal_lineup_for_day.values():
+                optimal = get_optimal_lineup(players_playing_today, lineup_settings)
+                daily_optimal_lineups[day_date.strftime('%A, %b %d')] = optimal
+                for pos_players in optimal.values():
                     for player in pos_players:
                         player_starts_counter[player['player_id']] += 1
 
         for player in all_players:
             player['starts_this_week'] = player_starts_counter.get(player.get('player_id'), 0)
 
-        unused_roster_spots = _calculate_unused_spots(days_in_week, active_players, lineup_settings, simulated_moves)
+        unused_roster_spots = _calculate_unused_spots(days_in_week, all_players, lineup_settings, simulated_moves)
 
         return jsonify({
             'players': all_players,
@@ -3063,8 +3066,7 @@ def get_roster_data():
         logging.error(f"Error fetching roster data: {e}", exc_info=True)
         return jsonify({'error': f"An error occurred: {e}"}), 500
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
 
 @app.route('/api/free_agent_data', methods=['GET', 'POST'])
