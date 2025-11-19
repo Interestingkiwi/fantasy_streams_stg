@@ -12,11 +12,9 @@
     let currentSubPage = 'trade-partners';
     let userTeamName = localStorage.getItem('selectedTeam') || '';
 
-    // Sorting State (Global)
+    // Sorting/Filter State
     let activeFromCats = [];
     let activeToCats = [];
-
-    // Filter State (Global)
     let filterPartner = "";
     let filterNHL = [];
     let filterPos = [];
@@ -33,8 +31,9 @@
         "PHI", "PIT", "SJS", "SEA", "STL", "TBL", "TOR", "UTA", "VAN", "VGK", "WSH", "WPG"
     ];
 
+    // --- Helpers ---
     function getHeatmapColor(rank) {
-        if (rank === null || rank === undefined || rank === '-' || isNaN(rank)) { return ''; }
+        if (rank === null || rank === undefined || rank === '-' || isNaN(rank)) return '';
         const minRank = 1; const maxRank = 20;
         const clampedRank = Math.max(minRank, Math.min(rank, maxRank));
         const percentage = (clampedRank - minRank) / (maxRank - minRank);
@@ -42,17 +41,86 @@
         return `hsl(${hue}, 65%, 75%)`;
     }
 
+    function formatPercentage(decimal) {
+        if (decimal == null) return 'N/A';
+        const num = parseFloat(decimal);
+        return isNaN(num) ? 'N/A' : (num * 100).toFixed(1) + '%';
+    }
+
+    function formatSecondsToMMSS(seconds) {
+        if (seconds == null) return 'N/A';
+        const s = parseInt(seconds, 10);
+        if (isNaN(s)) return 'N/A';
+        const minutes = Math.floor(s / 60);
+        const remaining = s % 60;
+        return `${minutes}:${remaining < 10 ? '0' : ''}${remaining}`;
+    }
+
+    function formatNullable(value) { return value ?? 'N/A'; }
+
+
     async function init() {
         if (!yourTeamSelect || !subpageContent) {
             console.error('Trade Helper: Critical elements missing.');
             return;
         }
 
+        // --- Inject Modal HTML ---
+        const ppModalHTML = `
+        <div id="pp-stats-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" style="backdrop-filter: blur(2px);">
+            <div class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-lg relative border border-gray-700">
+                <button id="pp-modal-close" class="absolute top-3 right-3 text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
+                <h3 id="pp-modal-title" class="text-xl font-bold text-white mb-4">Player PP Stats</h3>
+                <div id="pp-modal-content" class="text-gray-300"></div>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', ppModalHTML);
+
+        // --- Modal Listeners ---
+        document.getElementById('pp-modal-close').addEventListener('click', () => {
+            document.getElementById('pp-stats-modal').classList.add('hidden');
+        });
+        document.getElementById('pp-stats-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'pp-stats-modal') document.getElementById('pp-stats-modal').classList.add('hidden');
+        });
+
+        // --- Global Click Listener for Dynamic Tables ---
+        document.body.addEventListener('click', (e) => {
+            const ppCell = e.target.closest('.pp-util-cell');
+            if (ppCell) {
+                const data = ppCell.dataset;
+                document.getElementById('pp-modal-title').textContent = `${data.playerName} - PP Stats`;
+                document.getElementById('pp-modal-content').innerHTML = `
+                <div class="space-y-4">
+                    <div>
+                        <h4 class="text-md font-semibold text-white mb-2">Last Game</h4>
+                        <dl class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
+                            <div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PP TOI</dt><dd class="text-sm font-medium">${formatSecondsToMMSS(data.lgPpToi)}</dd></div>
+                            <div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PP %</dt><dd class="text-sm font-medium">${formatPercentage(data.lgPpPct)}</dd></div>
+                            <div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PPA</dt><dd class="text-sm font-medium">${formatNullable(data.lgPpa)}</dd></div>
+                            <div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PPG</dt><dd class="text-sm font-medium">${formatNullable(data.lgPpg)}</dd></div>
+                        </dl>
+                    </div>
+                    <div>
+                        <h4 class="text-md font-semibold text-white mb-2">Last Week</h4>
+                        <dl class="grid grid-cols-2 sm:grid-cols-5 gap-x-4 gap-y-2">
+                            <div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Avg PP TOI</dt><dd class="text-sm font-medium">${formatSecondsToMMSS(data.lwPpToi)}</dd></div>
+                            <div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Avg PP %</dt><dd class="text-sm font-medium">${formatPercentage(data.lwPpPct)}</dd></div>
+                            <div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Tot PPA</dt><dd class="text-sm font-medium">${formatNullable(data.lwPpa)}</dd></div>
+                            <div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Tot PPG</dt><dd class="text-sm font-medium">${formatNullable(data.lwPpg)}</dd></div>
+                            <div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">GP</dt><dd class="text-sm font-medium">${formatNullable(data.lwGp)}</dd></div>
+                        </dl>
+                    </div>
+                </div>`;
+                document.getElementById('pp-stats-modal').classList.remove('hidden');
+            }
+        });
+
+        // --- Page Logic ---
         yourTeamSelect.addEventListener('change', () => {
             userTeamName = yourTeamSelect.value;
             filterPartner = "";
-            activeFromCats = []; // Reset sorts on team change
-            activeToCats = [];
+            activeFromCats = []; activeToCats = [];
             fetchAllData();
         });
 
@@ -63,7 +131,6 @@
         fetchAllData();
     }
 
-    // --- Navigation ---
     window.loadSubPage = async function(pageName) {
         currentSubPage = pageName;
         if (navPartners && navCompare) {
@@ -77,28 +144,17 @@
                 navPartners.className = navPartners.className.replace(activeClass, '') + ` ${inactiveClass}`;
             }
         }
-
         try {
             const response = await fetch(`/pages/${pageName}.html`);
             if (!response.ok) throw new Error(`Failed to load ${pageName}`);
             subpageContent.innerHTML = await response.text();
             renderCurrentPage();
-        } catch (err) {
-            console.error(err);
-            subpageContent.innerHTML = `<p class="text-red-400">Error loading content.</p>`;
-        }
+        } catch (err) { console.error(err); subpageContent.innerHTML = `<p class="text-red-400">Error loading content.</p>`; }
     };
 
-    // --- Data Fetching ---
     async function fetchAllData() {
-        if (!userTeamName) {
-            if(loadingText) loadingText.textContent = "Please select a team.";
-            return;
-        }
-        if(loadingText) {
-            loadingText.textContent = "Loading data...";
-            loadingText.classList.remove('hidden');
-        }
+        if (!userTeamName) { if(loadingText) loadingText.textContent = "Please select a team."; return; }
+        if(loadingText) { loadingText.textContent = "Loading data..."; loadingText.classList.remove('hidden'); }
         await Promise.all([fetchCategoryStrengths(), fetchLeagueRosterData()]);
         if(loadingText) loadingText.textContent = "";
     }
@@ -106,12 +162,10 @@
     async function fetchCategoryStrengths() {
         try {
             const response = await fetch('/api/trade_helper_data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ team_name: userTeamName, week: 'all' })
             });
-            const data = await response.json();
-            categoryData = data;
+            categoryData = await response.json();
             if (currentSubPage === 'trade-partners') renderCurrentPage();
             if (currentSubPage === 'trade-compare') renderCurrentPage();
         } catch (err) { console.error(err); }
@@ -121,8 +175,7 @@
         const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
         try {
             const response = await fetch('/api/trade_helper_league_roster_data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ sourcing: selectedSourcing })
             });
             const data = await response.json();
@@ -138,18 +191,13 @@
         else if (currentSubPage === 'trade-compare') renderComparePage();
     }
 
-    // --- Trade Partners Logic ---
+    // --- Trade Partners (Unchanged from previous steps) ---
     function renderPartnersPage() {
         const skaterContainer = document.getElementById('skater-table-container');
         const goalieContainer = document.getElementById('goalie-table-container');
         const recContainer = document.getElementById('trade-recommendations-container');
-
         if (!skaterContainer || !goalieContainer) return;
-
-        if (!categoryData.skater_stats) {
-            skaterContainer.innerHTML = '<p class="text-gray-500">Loading stats...</p>';
-            return;
-        }
+        if (!categoryData.skater_stats) { skaterContainer.innerHTML = '<p class="text-gray-500">Loading stats...</p>'; return; }
 
         const headers = ['category', 'Rank', 'Average Delta', 'Total'];
         renderSimpleTable(skaterContainer, categoryData.skater_stats, headers);
@@ -157,9 +205,7 @@
         let hiddenSubCats = new Set();
         if (categoryData.goalie_stats) {
             categoryData.goalie_stats.forEach(row => {
-                if (row.sub_rows && row.sub_rows.length > 0) {
-                    row.sub_rows.forEach(sub => hiddenSubCats.add(sub.category));
-                }
+                if (row.sub_rows && row.sub_rows.length > 0) row.sub_rows.forEach(sub => hiddenSubCats.add(sub.category));
             });
         }
         const filteredGoalieStats = categoryData.goalie_stats.filter(row => !hiddenSubCats.has(row.category));
@@ -171,21 +217,15 @@
         }
     }
 
-    // --- MODIFIED: Keep Raw Categories in Data ---
     function findTradeMatches(matrix, totalTeams) {
         const myRanks = matrix[userTeamName];
         if (!myRanks) return [];
         const strengthThreshold = Math.ceil(totalTeams / 3);
         const weaknessThreshold = totalTeams - Math.floor(totalTeams / 3) + 1;
-
-        // Only exclude GA/TOI if using GAA. We KEEP SA/SV to allow sorting,
-        // but we will bundle them visually later.
         const allCats = Object.keys(myRanks);
         const excludedCats = [];
         if (allCats.includes('GAA')) excludedCats.push('GA', 'TOI/G');
-        // Note: We are NOT excluding SV/SA here anymore for the raw logic,
-        // so that we can pass "SV" to the sorter if needed.
-
+        // Keep SV/SA for internal logic
         let matches = [];
         for (const [teamName, teamRanks] of Object.entries(matrix)) {
             if (teamName === userTeamName) continue;
@@ -205,66 +245,45 @@
         return matches;
     }
 
-    // --- MODIFIED: Handle Display vs Click Data ---
     function renderTradeMatches(container, matches) {
         if (matches.length === 0) {
             container.innerHTML = `<div class="col-span-full text-center p-4 bg-gray-700/50 rounded-lg text-gray-300">No perfect matches found.</div>`;
             return;
         }
-
-        // Helper to bundle SA/SV for display ONLY
         const formatForDisplay = (cats) => {
             let display = [...cats];
             if (display.includes('SA') && display.includes('SV')) {
-                display = display.filter(c => c !== 'SA' && c !== 'SV');
-                display.push('Goalie Vol'); // Visual label
+                display = display.filter(c => c !== 'SA' && c !== 'SV'); display.push('Goalie Vol');
             }
             return display;
         };
-
         let html = '';
         matches.forEach(m => {
             const displayGives = formatForDisplay(m.gives);
             const displayGets = formatForDisplay(m.gets);
-
-            // We pass the RAW m.gives/m.gets to the click handler
             html += `
             <div class="bg-gray-700/40 border border-gray-600 rounded-lg p-4 hover:bg-gray-700/70 transition duration-200 cursor-pointer"
                  onclick="window.selectTradeScenario('${m.team}', '${m.gives.join(',')}', '${m.gets.join(',')}')">
-
                 <h4 class="text-lg font-bold text-white mb-3 border-b border-gray-600 pb-2 flex justify-between items-center">
-                    ${m.team}
-                    <span class="text-xs font-normal text-blue-300 hover:underline">Compare &rarr;</span>
+                    ${m.team} <span class="text-xs font-normal text-blue-300 hover:underline">Compare &rarr;</span>
                 </h4>
-
                 <div class="mb-3">
                     <p class="text-xs uppercase text-gray-400 font-bold mb-1">You Give (Surplus):</p>
-                    <div class="flex flex-wrap gap-2">
-                        ${displayGives.map(cat => `<span class="px-2 py-1 text-xs font-bold rounded bg-green-900 text-green-200 border border-green-700">${cat}</span>`).join('')}
-                    </div>
+                    <div class="flex flex-wrap gap-2">${displayGives.map(cat => `<span class="px-2 py-1 text-xs font-bold rounded bg-green-900 text-green-200 border border-green-700">${cat}</span>`).join('')}</div>
                 </div>
-
                 <div>
                     <p class="text-xs uppercase text-gray-400 font-bold mb-1">You Get (Need):</p>
-                    <div class="flex flex-wrap gap-2">
-                        ${displayGets.map(cat => `<span class="px-2 py-1 text-xs font-bold rounded bg-blue-900 text-blue-200 border border-blue-700">${cat}</span>`).join('')}
-                    </div>
+                    <div class="flex flex-wrap gap-2">${displayGets.map(cat => `<span class="px-2 py-1 text-xs font-bold rounded bg-blue-900 text-blue-200 border border-blue-700">${cat}</span>`).join('')}</div>
                 </div>
             </div>`;
         });
         container.innerHTML = html;
     }
 
-    // --- NEW: Handle Tile Click ---
     window.selectTradeScenario = function(partnerName, givesStr, getsStr) {
-        // 1. Set Filters
         filterPartner = partnerName;
-
-        // 2. Set Sorters (Convert comma-strings back to arrays)
         activeFromCats = givesStr ? givesStr.split(',') : [];
         activeToCats = getsStr ? getsStr.split(',') : [];
-
-        // 3. Switch Page (This will trigger render, which triggers setupCompareSorting)
         loadSubPage('trade-compare');
     }
 
@@ -314,13 +333,8 @@
 
         if (!userSkaterContainer) return;
 
-        // Setup Controls
-        if (categoryData.all_scoring_categories) {
-            setupCompareSorting(categoryData.all_scoring_categories);
-        }
-        if (rosterData.players.length > 0) {
-            setupCompareFilters();
-        }
+        if (categoryData.all_scoring_categories) setupCompareSorting(categoryData.all_scoring_categories);
+        if (rosterData.players.length > 0) setupCompareFilters();
 
         if (rosterData.players.length === 0) {
             if(rosterLoader) rosterLoader.textContent = "Loading rosters...";
@@ -328,21 +342,18 @@
         }
         if(rosterLoader) rosterLoader.textContent = "";
 
-        // 1. Filter
+        // Filter
         const userPlayers = rosterData.players.filter(p => p.fantasy_team_name === userTeamName);
-
         const oppPlayers = rosterData.players.filter(p => {
             if (p.fantasy_team_name === userTeamName || p.fantasy_team_name === 'Free Agent') return false;
             if (filterPartner && p.fantasy_team_name !== filterPartner) return false;
             if (filterNHL.length > 0 && !filterNHL.includes(p.team)) return false;
             if (filterPos.length > 0) {
                 const pPos = (p.eligible_positions || "").split(',').map(s => s.trim());
-                const hasMatch = pPos.some(pos => filterPos.includes(pos));
-                if (!hasMatch) return false;
+                if (!pPos.some(pos => filterPos.includes(pos))) return false;
             }
             if (filterSearch) {
-                const search = filterSearch.toLowerCase();
-                if (!p.player_name.toLowerCase().includes(search)) return false;
+                if (!p.player_name.toLowerCase().includes(filterSearch.toLowerCase())) return false;
             }
             return true;
         });
@@ -352,7 +363,7 @@
         const oppSkaters = oppPlayers.filter(p => !(p.eligible_positions || '').includes('G'));
         const oppGoalies = oppPlayers.filter(p => (p.eligible_positions || '').includes('G'));
 
-        // 2. Sort
+        // Sort
         const multiSortFn = (keys) => (a, b) => {
             if (!keys || keys.length === 0) return 0;
             for (let key of keys) {
@@ -370,13 +381,13 @@
         oppSkaters.sort(multiSortFn(activeToCats));
         oppGoalies.sort(multiSortFn(activeToCats));
 
-        // 3. Render
+        // Render
         renderRosterTable(userSkaterContainer, userSkaters, rosterData.skaterCategories, false);
         renderRosterTable(userGoalieContainer, userGoalies, rosterData.goalieCategories, false);
         renderRosterTable(oppSkaterContainer, oppSkaters, rosterData.skaterCategories, true);
         renderRosterTable(oppGoalieContainer, oppGoalies, rosterData.goalieCategories, true);
 
-        // 4. Swap Sections
+        // Swap
         const primaryToCat = activeToCats[0];
         const isGoalieStat = primaryToCat && rosterData.goalieCategories.includes(primaryToCat);
         if (oppSkaterSection && oppGoalieSection) {
@@ -385,6 +396,7 @@
         }
     }
 
+    // --- Setup Functions (Sorting & Filters) - same logic as before ---
     function setupCompareSorting(categories) {
         const tradeFromSelect = document.getElementById('trade-from-select');
         const tradeToSelect = document.getElementById('trade-to-select');
@@ -392,7 +404,6 @@
         const tradeToTags = document.getElementById('trade-to-tags');
 
         if (!tradeFromSelect || !tradeToSelect) return;
-
         if (tradeFromSelect.options.length === 1) {
             let visibleCategories = [...categories];
             if (categories.includes('GAA')) visibleCategories = visibleCategories.filter(c => c !== 'GA' && c !== 'TOI/G');
@@ -405,15 +416,9 @@
                 tradeToSelect.appendChild(opt2);
             });
 
-            tradeFromSelect.addEventListener('change', (e) => {
-                if (e.target.value) { addCategory('from', e.target.value); e.target.value = ""; }
-            });
-            tradeToSelect.addEventListener('change', (e) => {
-                if (e.target.value) { addCategory('to', e.target.value); e.target.value = ""; }
-            });
+            tradeFromSelect.addEventListener('change', (e) => { if (e.target.value) { addCategory('from', e.target.value); e.target.value = ""; } });
+            tradeToSelect.addEventListener('change', (e) => { if (e.target.value) { addCategory('to', e.target.value); e.target.value = ""; } });
         }
-
-        // --- IMPORTANT: Update tags from Global State when page loads ---
         if (tradeFromTags && tradeFromTags.children.length === 0) renderTags(tradeFromTags, activeFromCats, 'from');
         if (tradeToTags && tradeToTags.children.length === 0) renderTags(tradeToTags, activeToCats, 'to');
     }
@@ -431,7 +436,6 @@
     function removeCategory(type, category) {
         if (type === 'from') activeFromCats = activeFromCats.filter(c => c !== category);
         else activeToCats = activeToCats.filter(c => c !== category);
-
         const container = type === 'from' ? document.getElementById('trade-from-tags') : document.getElementById('trade-to-tags');
         const arr = type === 'from' ? activeFromCats : activeToCats;
         if (container) renderTags(container, arr, type);
@@ -467,37 +471,14 @@
                     partnerSelect.appendChild(opt);
                 }
             });
-            // Set Value from State
             partnerSelect.value = filterPartner;
-
-            NHL_TEAMS.forEach(t => {
-                const opt = document.createElement('option'); opt.value = t; opt.textContent = t;
-                nhlSelect.appendChild(opt);
-            });
+            NHL_TEAMS.forEach(t => { const opt = document.createElement('option'); opt.value = t; opt.textContent = t; nhlSelect.appendChild(opt); });
 
             partnerSelect.addEventListener('change', (e) => { filterPartner = e.target.value; renderComparePage(); });
-
-            nhlSelect.addEventListener('change', (e) => {
-                if (e.target.value && !filterNHL.includes(e.target.value)) {
-                    filterNHL.push(e.target.value);
-                    renderFilterTags(tagsNHL, filterNHL, 'nhl');
-                    renderComparePage();
-                }
-                e.target.value = "";
-            });
-
-            posSelect.addEventListener('change', (e) => {
-                if (e.target.value && !filterPos.includes(e.target.value)) {
-                    filterPos.push(e.target.value);
-                    renderFilterTags(tagsPos, filterPos, 'pos');
-                    renderComparePage();
-                }
-                e.target.value = "";
-            });
-
+            nhlSelect.addEventListener('change', (e) => { if (e.target.value && !filterNHL.includes(e.target.value)) { filterNHL.push(e.target.value); renderFilterTags(tagsNHL, filterNHL, 'nhl'); renderComparePage(); } e.target.value = ""; });
+            posSelect.addEventListener('change', (e) => { if (e.target.value && !filterPos.includes(e.target.value)) { filterPos.push(e.target.value); renderFilterTags(tagsPos, filterPos, 'pos'); renderComparePage(); } e.target.value = ""; });
             searchInput.addEventListener('input', (e) => { filterSearch = e.target.value; renderComparePage(); });
         }
-
         if (tagsNHL && tagsNHL.children.length === 0) renderFilterTags(tagsNHL, filterNHL, 'nhl');
         if (tagsPos && tagsPos.children.length === 0) renderFilterTags(tagsPos, filterPos, 'pos');
     }
@@ -509,8 +490,7 @@
             pill.className = 'inline-flex items-center bg-gray-600 text-gray-200 text-[10px] px-2 py-0.5 rounded border border-gray-500';
             pill.innerHTML = `${tag}<button class="ml-1 text-gray-400 hover:text-white font-bold">&times;</button>`;
             pill.querySelector('button').addEventListener('click', () => {
-                if (type === 'nhl') filterNHL = filterNHL.filter(t => t !== tag);
-                else filterPos = filterPos.filter(p => p !== tag);
+                if (type === 'nhl') filterNHL = filterNHL.filter(t => t !== tag); else filterPos = filterPos.filter(p => p !== tag);
                 renderFilterTags(container, (type==='nhl'?filterNHL:filterPos), type);
                 renderComparePage();
             });
@@ -524,13 +504,54 @@
         html += `<th class="px-2 py-1 text-left font-bold text-gray-300">Player</th>`;
         if (showTeamColumn) html += `<th class="px-2 py-1 text-left font-bold text-gray-300">Team</th>`;
         html += `<th class="px-2 py-1 text-left font-bold text-gray-300">NHL Team</th><th class="px-2 py-1 text-left font-bold text-gray-300">Pos</th>`;
+        // --- NEW COLUMNS ---
+        html += `<th class="px-2 py-1 text-center font-bold text-gray-300" title="Sum of Category Ranks">Cat Rank</th>`;
+        html += `<th class="px-2 py-1 text-center font-bold text-gray-300" title="Power Play Utilization">PP Util</th>`;
+        // -------------------
         categories.forEach(cat => html += `<th class="px-2 py-1 text-center font-bold text-gray-300" title="${cat}">${cat}</th>`);
         html += `</tr></thead><tbody class="bg-gray-800 divide-y divide-gray-700">`;
+
         players.forEach(p => {
+            // Calculate Cat Rank Sum
+            let catSum = 0;
+            let validRanks = 0;
+            categories.forEach(cat => {
+                const r = p[cat + '_cat_rank'];
+                if (r !== null && r !== undefined) { catSum += r; validRanks++; }
+            });
+            // If no ranks (e.g. goalie in skater table), show dash
+            const catRankDisplay = validRanks > 0 ? Math.round(catSum) : '-';
+
             html += `<tr class="hover:bg-gray-700/50">`;
             html += `<td class="px-2 py-1 whitespace-nowrap font-medium text-gray-300">${p.player_name}</td>`;
             if (showTeamColumn) html += `<td class="px-2 py-1 whitespace-nowrap text-yellow-300">${p.fantasy_team_name}</td>`;
             html += `<td class="px-2 py-1 whitespace-nowrap text-gray-300">${p.team}</td><td class="px-2 py-1 whitespace-nowrap text-gray-300">${p.eligible_positions}</td>`;
+
+            // --- NEW: Cat Rank Cell ---
+            html += `<td class="px-2 py-1 text-center font-bold text-white">${catRankDisplay}</td>`;
+
+            // --- NEW: PP Util Cell (Clickable) ---
+            // Only for Skaters (check if PP data exists)
+            if (p.avg_ppTimeOnIcePctPerGame !== undefined) {
+                html += `
+                <td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300 cursor-pointer hover:bg-gray-700 pp-util-cell"
+                    data-player-name="${p.player_name}"
+                    data-avg-pp-pct="${p.avg_ppTimeOnIcePctPerGame}"
+                    data-lg-pp-toi="${p.lg_ppTimeOnIce}"
+                    data-lg-pp-pct="${p.lg_ppTimeOnIcePctPerGame}"
+                    data-lg-ppa="${p.lg_ppAssists}"
+                    data-lg-ppg="${p.lg_ppGoals}"
+                    data-lw-pp-toi="${p.avg_ppTimeOnIce}"
+                    data-lw-pp-pct="${p.avg_ppTimeOnIcePctPerGame}"
+                    data-lw-ppa="${p.total_ppAssists}"
+                    data-lw-ppg="${p.total_ppGoals}"
+                    data-lw-gp="${p.team_games_played}">
+                    ${formatPercentage(p.avg_ppTimeOnIcePctPerGame)}
+                </td>`;
+            } else {
+                html += `<td class="px-2 py-1 text-center text-gray-500">-</td>`;
+            }
+
             categories.forEach(cat => {
                 const rank = p[cat + '_cat_rank'];
                 const display = (rank !== null && rank !== undefined) ? Math.round(rank) : '-';
