@@ -3,22 +3,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const timestampText = document.getElementById('timestamp-text');
     const dropdownContainer = document.getElementById('dropdown-container');
 
-    // --- Global Show Raw Data Toggle ---
-    const showRawCheckbox = document.getElementById('global-show-raw-data');
-    if (showRawCheckbox) {
-        // Init state
-        const isRaw = localStorage.getItem('showRawData') === 'true';
-        showRawCheckbox.checked = isRaw;
-
-        showRawCheckbox.addEventListener('change', (e) => {
+    // --- FIX: Event Delegation for Raw Data Toggle ---
+    // This ensures the listener works even after initDropdowns overwrites the HTML
+    document.addEventListener('change', (e) => {
+        if (e.target && e.target.id === 'global-show-raw-data') {
             const val = e.target.checked;
             localStorage.setItem('showRawData', val);
-            // Notify all other scripts
             window.dispatchEvent(new CustomEvent('rawDataToggled', { detail: { showRaw: val } }));
-        });
-    }
+        }
+    });
 
-    // --- Global Cat Rank Modal ---
+    // --- Global Modal Logic ---
     const modal = document.getElementById('global-cat-rank-modal');
     const closeBtn = document.getElementById('global-modal-close');
     const modalContent = document.getElementById('global-modal-content');
@@ -29,12 +24,11 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.onclick = (e) => { if (e.target === modal) modal.classList.add('hidden'); };
     }
 
-    // Global function to open modal
     window.openCatRankModal = function(playerObj, categories) {
         if (!modal || !modalContent) return;
 
         const showingRawMain = localStorage.getItem('showRawData') === 'true';
-        const showRanksInModal = showingRawMain; // Inverse logic
+        const showRanksInModal = showingRawMain;
 
         modalTitle.textContent = `${playerObj.player_name || 'Player'} - ${showRanksInModal ? 'Category Ranks' : 'Raw Stats'}`;
 
@@ -49,8 +43,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (showRanksInModal) {
                 const rank = playerObj[cat + '_cat_rank'];
                 displayVal = (rank != null) ? Math.round(rank) : '-';
-                if (rank && rank <= 5) style = 'color: #4ade80; font-weight: bold;'; // Green
-                else if (rank && rank >= 15) style = 'color: #f87171;'; // Red
+                if (rank && rank <= 5) style = 'color: #4ade80; font-weight: bold;';
+                else if (rank && rank >= 15) style = 'color: #f87171;';
             } else {
                 const raw = playerObj[cat];
                 displayVal = (raw != null && !isNaN(raw)) ? parseFloat(raw).toFixed(2).replace(/[.,]00$/, "") : (raw || '-');
@@ -98,7 +92,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // --- FIX: Added stat-sourcing-select to this HTML block ---
             dropdownContainer.innerHTML = `
                 <div class="flex items-center gap-2">
                     <label for="week-select" class="text-sm font-medium text-gray-300">Fantasy Week:</label>
@@ -120,29 +113,32 @@ document.addEventListener('DOMContentLoaded', () => {
                         <option value="combined">Combined</option>
                     </select>
                 </div>
+                <div class="flex items-center gap-2 bg-gray-800 py-2 px-4 rounded-lg border border-gray-600 shadow-sm ml-auto">
+                    <input type="checkbox" id="global-show-raw-data" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-500 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer">
+                    <label for="global-show-raw-data" class="text-sm font-medium text-gray-300 cursor-pointer select-none">Show Raw Data</label>
+                </div>
             `;
             dropdownContainer.classList.add('flex', 'items-center', 'gap-4');
 
             pageData = data;
             populateDropdowns();
-            populateStatSourcingDropdown(); // Initialize the stat sourcing value
+            populateStatSourcingDropdown();
 
-            // Re-attach listeners
-            document.getElementById('week-select').addEventListener('change', (e) => {
-                localStorage.setItem('selectedWeek', e.target.value);
-            });
-            document.getElementById('your-team-select').addEventListener('change', (e) => {
-                localStorage.setItem('selectedTeam', e.target.value);
-            });
+            // --- FIX: Restore Checkbox State after re-rendering HTML ---
+            const showRawCheckbox = document.getElementById('global-show-raw-data');
+            if (showRawCheckbox) {
+                showRawCheckbox.checked = localStorage.getItem('showRawData') === 'true';
+            }
+
+            document.getElementById('week-select').addEventListener('change', (e) => { localStorage.setItem('selectedWeek', e.target.value); });
+            document.getElementById('your-team-select').addEventListener('change', (e) => { localStorage.setItem('selectedTeam', e.target.value); });
 
             const statSourcingSelect = document.getElementById('stat-sourcing-select');
             statSourcingSelect.addEventListener('change', (e) => {
                 localStorage.setItem('selectedStatSourcing', e.target.value);
-                // Smart Refresh
                 const recalculateBtn = document.getElementById('recalculate-button');
-                if (recalculateBtn) {
-                    recalculateBtn.click();
-                } else {
+                if (recalculateBtn) recalculateBtn.click();
+                else {
                     const activeTab = document.querySelector('.toggle-btn.bg-blue-600');
                     if (activeTab) activeTab.click();
                 }
@@ -157,16 +153,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const weekSelect = document.getElementById('week-select');
         const yourTeamSelect = document.getElementById('your-team-select');
 
-        weekSelect.innerHTML = pageData.weeks.map(week =>
-            `<option value="${week.week_num}">
-                Week ${week.week_num} (${week.start_date} to ${week.end_date})
-            </option>`
-        ).join('');
-
-        const teamOptions = pageData.teams.map(team =>
-            `<option value="${team.name}">${team.name}</option>`
-        ).join('');
-        yourTeamSelect.innerHTML = teamOptions;
+        weekSelect.innerHTML = pageData.weeks.map(week => `<option value="${week.week_num}">Week ${week.week_num} (${week.start_date} to ${week.end_date})</option>`).join('');
+        yourTeamSelect.innerHTML = pageData.teams.map(team => `<option value="${team.name}">${team.name}</option>`).join('');
 
         const savedTeam = localStorage.getItem('selectedTeam');
         if (savedTeam) yourTeamSelect.value = savedTeam;
