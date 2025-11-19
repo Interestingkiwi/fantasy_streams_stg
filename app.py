@@ -2388,7 +2388,7 @@ def get_trade_helper_data():
 @app.route('/api/trade_helper_league_roster_data', methods=['POST'])
 def get_trade_helper_league_roster_data():
     """
-    Fetches ALL rostered players in the league, including PP stats and ranks.
+    Fetches ALL rostered players, including Raw Stats, Ranks, and PP Stats.
     """
     league_id = session.get('league_id')
     data = request.get_json()
@@ -2402,6 +2402,12 @@ def get_trade_helper_league_roster_data():
     try:
         cursor = conn.cursor()
 
+        # 0. Get Current Week (For calculation logic)
+        today = date.today().isoformat()
+        cursor.execute("SELECT week_num FROM weeks WHERE start_date <= ? AND end_date >= ?", (today, today))
+        current_week_row = cursor.fetchone()
+        current_week = current_week_row['week_num'] if current_week_row else 1
+
         # 1. Get Team Names/IDs
         cursor.execute("SELECT team_id, name FROM teams")
         teams_map = {str(row['team_id']): row['name'].decode('utf-8').strip() for row in cursor.fetchall()}
@@ -2413,12 +2419,15 @@ def get_trade_helper_league_roster_data():
         goalie_categories = [row['category'] for row in all_categories_raw if row['scoring_group'] == 'goaltending']
         all_scoring_categories = skater_categories + goalie_categories
 
-        # 3. Define Columns to Fetch (Base + PP Stats)
+        # 3. Define Columns to Fetch
+        # A. PP Stats
         pp_cols = [
             'avg_ppTimeOnIcePctPerGame', 'lg_ppTimeOnIce', 'lg_ppTimeOnIcePctPerGame',
             'lg_ppAssists', 'lg_ppGoals', 'avg_ppTimeOnIce', 'total_ppAssists',
             'total_ppGoals', 'team_games_played'
         ]
+        # B. Raw Scoring Cats + Base Stats needed for calcs
+        raw_stat_cols = list(set(all_scoring_categories) | {'games_played', 'GA', 'SV', 'SA', 'TOI/G'})
 
         # 4. Get all players
         cursor.execute("""
@@ -2437,16 +2446,18 @@ def get_trade_helper_league_roster_data():
         for player in all_players:
             player['fantasy_team_name'] = teams_map.get(str(player['fantasy_team_id']), 'Unknown Team')
 
-        # 6. Get Ranks AND PP Stats
+        # 6. Get Ranks AND Stats
         cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
         valid_normalized_names = [p.get('player_name_normalized') for p in all_players if p.get('player_name_normalized')]
 
         player_stats = {}
         if valid_normalized_names:
-            # Combine Rank Cols and PP Cols
-            cols_to_select = cat_rank_columns + pp_cols
-            placeholders = ','.join('?' for _ in valid_normalized_names)
+            # Combine all needed columns
+            cols_to_select = cat_rank_columns + pp_cols + raw_stat_cols
+            # Remove duplicates just in case
+            cols_to_select = list(set(cols_to_select))
 
+            placeholders = ','.join('?' for _ in valid_normalized_names)
             query = f"""
                 SELECT player_name_normalized, {', '.join(cols_to_select)}
                 FROM {stat_table} j WHERE player_name_normalized IN ({placeholders})
@@ -2458,14 +2469,9 @@ def get_trade_helper_league_roster_data():
         for player in all_players:
             p_stats = player_stats.get(player.get('player_name_normalized'))
             if p_stats:
-                # Add Ranks
-                for cat in all_scoring_categories:
-                    rank_key = f"{cat}_cat_rank"
-                    player[rank_key] = p_stats.get(rank_key)
-
-                # Add PP Stats
-                for col in pp_cols:
-                    player[col] = p_stats.get(col)
+                # Add everything from p_stats to player object
+                for key, val in p_stats.items():
+                    player[key] = val
             else:
                  for cat in all_scoring_categories:
                     player[f"{cat}_cat_rank"] = None
@@ -2473,15 +2479,15 @@ def get_trade_helper_league_roster_data():
         return jsonify({
             'players': all_players,
             'skater_categories': skater_categories,
-            'goalie_categories': goalie_categories
+            'goalie_categories': goalie_categories,
+            'current_week': current_week
         })
 
     except Exception as e:
         logging.error(f"Error fetching league roster data: {e}", exc_info=True)
         return jsonify({'error': f"An error occurred: {e}"}), 500
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
 
 
