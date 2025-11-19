@@ -2388,8 +2388,8 @@ def get_trade_helper_data():
 @app.route('/api/trade_helper_league_roster_data', methods=['POST'])
 def get_trade_helper_league_roster_data():
     """
-    Fetches ALL rostered players.
-    Updates: Fetches Raw Stats (assumed to be per-game rates) and PP Stats.
+    Fetches ALL rostered players, including Raw Stats, Ranks, and PP Stats.
+    Fixed: Quotes column names to handle special characters like 'TOI/G'.
     """
     league_id = session.get('league_id')
     data = request.get_json()
@@ -2427,8 +2427,7 @@ def get_trade_helper_league_roster_data():
             'total_ppGoals', 'team_games_played'
         ]
 
-        # --- FIX: Removed 'games_played', 'GP', 'GS' ---
-        # We just fetch the stats themselves, plus base goalie stats needed for ratios
+        # Add Raw Stats (Categories + Base Goalie Stats)
         raw_stat_cols = list(set(all_scoring_categories) | {'GA', 'SV', 'SA', 'TOI/G'})
 
         # 4. Get all players
@@ -2452,27 +2451,29 @@ def get_trade_helper_league_roster_data():
         cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
         valid_normalized_names = [p.get('player_name_normalized') for p in all_players if p.get('player_name_normalized')]
 
-        player_stats = {}
         if valid_normalized_names:
             cols_to_select = list(set(cat_rank_columns + pp_cols + raw_stat_cols))
 
+            # --- FIX: Quote columns to handle special chars like '/' ---
+            quoted_cols = [f'"{col}"' for col in cols_to_select]
+
             placeholders = ','.join('?' for _ in valid_normalized_names)
             query = f"""
-                SELECT player_name_normalized, {', '.join(cols_to_select)}
+                SELECT player_name_normalized, {', '.join(quoted_cols)}
                 FROM {stat_table} j WHERE player_name_normalized IN ({placeholders})
             """
             cursor.execute(query, valid_normalized_names)
             player_stats = {row['player_name_normalized']: dict(row) for row in cursor.fetchall()}
 
-        # 7. Enrich players
-        for player in all_players:
-            p_stats = player_stats.get(player.get('player_name_normalized'))
-            if p_stats:
-                for key, val in p_stats.items():
-                    player[key] = val
-            else:
-                 for cat in all_scoring_categories:
-                    player[f"{cat}_cat_rank"] = None
+            # 7. Enrich players
+            for player in all_players:
+                p_stats = player_stats.get(player.get('player_name_normalized'))
+                if p_stats:
+                    for key, val in p_stats.items():
+                        player[key] = val
+                else:
+                    for cat in all_scoring_categories:
+                        player[f"{cat}_cat_rank"] = None
 
         return jsonify({
             'players': all_players,
@@ -2486,7 +2487,7 @@ def get_trade_helper_league_roster_data():
         return jsonify({'error': f"An error occurred: {e}"}), 500
     finally:
         if conn: conn.close()
-        
+
 
 
 @app.route('/api/schedules_page_data')
