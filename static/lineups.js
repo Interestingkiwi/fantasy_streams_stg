@@ -29,7 +29,8 @@
     function getHeatmapColor(rank) { if (rank == null || rank === '-') return ''; const min = 1, max = 20; const clamped = Math.max(min, Math.min(rank, max)); const pct = (clamped - min) / (max - min); const hue = (1 - pct) * 120; return `hsl(${hue}, 65%, 75%)`; }
 
     async function init() {
-        // --- 1. Inject Modals (Only if missing) ---
+        // --- 1. Inject Local Modals (PP & Opponent) ---
+        // We inject these if they don't exist to ensure PP/Opponent clicks work
         if (!document.getElementById('pp-stats-modal')) {
             const modalsHTML = `
             <div id="pp-stats-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" style="backdrop-filter: blur(2px);">
@@ -49,16 +50,13 @@
             document.body.insertAdjacentHTML('beforeend', modalsHTML);
         }
 
-        // --- 2. Global Modal Close Listener (Delegation) ---
-        // This ensures close buttons work even if modals persist between navigations
+        // --- 2. Global Modal Listener (Delegation) ---
         document.body.addEventListener('click', (e) => {
             if (e.target.closest('#pp-modal-close') || e.target.id === 'pp-stats-modal') {
-                const m = document.getElementById('pp-stats-modal');
-                if (m) m.classList.add('hidden');
+                document.getElementById('pp-stats-modal').classList.add('hidden');
             }
             if (e.target.closest('#opponent-modal-close') || e.target.id === 'opponent-stats-modal') {
-                const m = document.getElementById('opponent-stats-modal');
-                if (m) m.classList.add('hidden');
+                document.getElementById('opponent-stats-modal').classList.add('hidden');
             }
         });
 
@@ -83,7 +81,7 @@
         }
     }
 
-    // Re-render when global toggle changes
+    // --- Global Toggle Listener ---
     window.addEventListener('rawDataToggled', (e) => {
         if (currentRosterData) {
             renderTable(currentRosterData.players, currentRosterData.daily_optimal_lineups);
@@ -296,17 +294,17 @@
         weekSelect.addEventListener('change', fetchAndRenderTable);
         yourTeamSelect.addEventListener('change', fetchAndRenderTable);
 
-        // --- Event Delegation for Table Clicks ---
-        // We attach to tableContainer because it's the static parent of the dynamic table
+        // --- COMBINED CLICK HANDLER FOR TABLE ---
         tableContainer.addEventListener('click', (e) => {
 
-            // 1. Handle Cat Rank Cell
+            // 1. Handle Cat Rank Cell (Calls Global Modal)
             const rankCell = e.target.closest('.cat-rank-cell');
-            if (rankCell && currentRosterData && window.openCatRankModal) {
-                const pid = parseInt(rankCell.dataset.playerId);
-                const player = currentRosterData.players.find(p => p.player_id == pid);
+            if (rankCell && currentRosterData) {
+                // Use string comparison to avoid type mismatch
+                const pid = String(rankCell.dataset.playerId);
+                const player = currentRosterData.players.find(p => String(p.player_id) === pid);
 
-                if (player) {
+                if (player && window.openCatRankModal) {
                     const isGoalie = (player.eligible_positions || '').includes('G');
                     const cats = isGoalie ? goalieCategories : skaterCategories;
                     window.openCatRankModal(player, cats);
@@ -318,71 +316,65 @@
             const ppCell = e.target.closest('.pp-util-cell');
             if (ppCell) {
                 const data = ppCell.dataset;
-                const modal = document.getElementById('pp-stats-modal');
-                if (modal) {
-                    document.getElementById('pp-modal-title').textContent = `${data.playerName} - PP Stats`;
-                    document.getElementById('pp-modal-content').innerHTML = `
-                    <div class="space-y-4">
-                        <div><h4 class="text-md font-semibold text-white mb-2">Last Game</h4><dl class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2"><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PP TOI</dt><dd class="text-sm font-medium">${formatSecondsToMMSS(data.lgPpToi)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PP %</dt><dd class="text-sm font-medium">${formatPercentage(data.lgPpPct)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PPA</dt><dd class="text-sm font-medium">${formatNullable(data.lgPpa)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PPG</dt><dd class="text-sm font-medium">${formatNullable(data.lgPpg)}</dd></div></dl></div>
-                        <div><h4 class="text-md font-semibold text-white mb-2">Last Week</h4><dl class="grid grid-cols-2 sm:grid-cols-5 gap-x-4 gap-y-2"><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Avg PP TOI</dt><dd class="text-sm font-medium">${formatSecondsToMMSS(data.lwPpToi)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Avg PP %</dt><dd class="text-sm font-medium">${formatPercentage(data.lwPpPct)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Tot PPA</dt><dd class="text-sm font-medium">${formatNullable(data.lwPpa)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Tot PPG</dt><dd class="text-sm font-medium">${formatNullable(data.lwPpg)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">GP</dt><dd class="text-sm font-medium">${formatNullable(data.lwGp)}</dd></div></dl></div>
-                    </div>`;
-                    modal.classList.remove('hidden');
-                }
-                return;
+                document.getElementById('pp-modal-title').textContent = `${data.playerName} - PP Stats`;
+                document.getElementById('pp-modal-content').innerHTML = `
+                <div class="space-y-4">
+                    <div><h4 class="text-md font-semibold text-white mb-2">Last Game</h4><dl class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2"><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PP TOI</dt><dd class="text-sm font-medium">${formatSecondsToMMSS(data.lgPpToi)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PP %</dt><dd class="text-sm font-medium">${formatPercentage(data.lgPpPct)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PPA</dt><dd class="text-sm font-medium">${formatNullable(data.lgPpa)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">PPG</dt><dd class="text-sm font-medium">${formatNullable(data.lgPpg)}</dd></div></dl></div>
+                    <div><h4 class="text-md font-semibold text-white mb-2">Last Week</h4><dl class="grid grid-cols-2 sm:grid-cols-5 gap-x-4 gap-y-2"><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Avg PP TOI</dt><dd class="text-sm font-medium">${formatSecondsToMMSS(data.lwPpToi)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Avg PP %</dt><dd class="text-sm font-medium">${formatPercentage(data.lwPpPct)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Tot PPA</dt><dd class="text-sm font-medium">${formatNullable(data.lwPpa)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">Tot PPG</dt><dd class="text-sm font-medium">${formatNullable(data.lwPpg)}</dd></div><div class="bg-gray-700 p-2 rounded"><dt class="text-xs text-gray-400">GP</dt><dd class="text-sm font-medium">${formatNullable(data.lwGp)}</dd></div></dl></div>
+                </div>`;
+                document.getElementById('pp-stats-modal').classList.remove('hidden');
             }
 
-            // 3. Handle Opponent Cell
+            // 3. Handle Opponent Stats Cell
             const oppCell = e.target.closest('.opponent-stats-cell');
             if (oppCell) {
                 const data = oppCell.dataset;
-                const modal = document.getElementById('opponent-stats-modal');
-                if (modal) {
-                    const isGoalie = data.isGoalie === 'true';
-                    const stats = JSON.parse(data.opponentStats || '[]');
-                    document.getElementById('opponent-modal-title').textContent = `${data.playerName} - Opponent Stats`;
+                const isGoalie = data.isGoalie === 'true';
+                const stats = JSON.parse(data.opponentStats || '[]');
+                document.getElementById('opponent-modal-title').textContent = `${data.playerName} - Opponent Stats`;
 
-                    let headers, statKeys, totalAvgs;
-                    if (isGoalie) {
-                        headers = ["Date", "Opp", "GF/G (Szn)", "GF/G (Last Wk)", "SOG/G (Szn)", "SOG/G (Last Wk)"];
-                        statKeys = ["gf_gm", "gf_gm_weekly", "sogf_gm", "sogf_gm_weekly"];
-                        totalAvgs = { gf_gm: 0, sogf_gm: 0, gf_gm_weekly: 0, sogf_gm_weekly: 0, count: 0 };
-                    } else {
-                        headers = ["Date", "Opp", "GA/G (Szn)", "GA/G (Last Wk)", "SOGA/G (Szn)", "SOGA/G (Last Wk)", "PK% (Szn)", "PK% (Last Wk)"];
-                        statKeys = ["ga_gm", "ga_gm_weekly", "soga_gm", "soga_gm_weekly", "pk_pct", "pk_pct_weekly"];
-                        totalAvgs = { ga_gm: 0, soga_gm: 0, ga_gm_weekly: 0, soga_gm_weekly: 0, pk_pct: 0, pk_pct_weekly: 0, count: 0 };
-                    }
+                let headers, statKeys, totalAvgs;
+                if (isGoalie) {
+                    headers = ["Date", "Opp", "GF/G (Szn)", "GF/G (Last Wk)", "SOG/G (Szn)", "SOG/G (Last Wk)"];
+                    statKeys = ["gf_gm", "gf_gm_weekly", "sogf_gm", "sogf_gm_weekly"];
+                    totalAvgs = { gf_gm: 0, sogf_gm: 0, gf_gm_weekly: 0, sogf_gm_weekly: 0, count: 0 };
+                } else {
+                    headers = ["Date", "Opp", "GA/G (Szn)", "GA/G (Last Wk)", "SOGA/G (Szn)", "SOGA/G (Last Wk)", "PK% (Szn)", "PK% (Last Wk)"];
+                    statKeys = ["ga_gm", "ga_gm_weekly", "soga_gm", "soga_gm_weekly", "pk_pct", "pk_pct_weekly"];
+                    totalAvgs = { ga_gm: 0, soga_gm: 0, ga_gm_weekly: 0, soga_gm_weekly: 0, pk_pct: 0, pk_pct_weekly: 0, count: 0 };
+                }
 
-                    let tableHtml = `<table class="min-w-full divide-y divide-gray-700"><thead class="bg-gray-700/50"><tr>${headers.map(h => `<th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">${h}</th>`).join('')}</tr></thead><tbody class="bg-gray-800 divide-y divide-gray-700">`;
-                    if (stats.length === 0) {
-                        tableHtml += `<tr><td colspan="${headers.length}" class="text-center text-gray-400 py-3">No opponent data available for this week.</td></tr>`;
-                    } else {
-                        stats.forEach(game => {
-                            tableHtml += `<tr class="hover:bg-gray-700/50"><td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${game.game_date}</td><td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${game.opponent_tricode}</td>`;
-                            statKeys.forEach(key => {
-                                const isWhole = key.includes('sog');
-                                const isPct = key.includes('pk_');
-                                const val = parseFloat(game[key]);
-                                if (!isNaN(val)) totalAvgs[key] += val;
-                                let formattedVal = isPct ? formatPercentage(game[key]) : formatNumber(game[key], isWhole ? 0 : 2);
-                                tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${formattedVal}</td>`;
-                            });
-                            tableHtml += `</tr>`;
-                        });
-                        const numGames = stats.length || 1;
-                        tableHtml += `<tr class="bg-gray-700 font-bold"><td class="px-2 py-1 text-sm text-white" colspan="2">Average</td>`;
+                let tableHtml = `<table class="min-w-full divide-y divide-gray-700"><thead class="bg-gray-700/50"><tr>${headers.map(h => `<th class="px-2 py-1 text-left text-xs font-bold text-gray-300 uppercase tracking-wider">${h}</th>`).join('')}</tr></thead><tbody class="bg-gray-800 divide-y divide-gray-700">`;
+
+                if (stats.length === 0) {
+                    tableHtml += `<tr><td colspan="${headers.length}" class="text-center text-gray-400 py-3">No opponent data available for this week.</td></tr>`;
+                } else {
+                    stats.forEach(game => {
+                        tableHtml += `<tr class="hover:bg-gray-700/50"><td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${game.game_date}</td><td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${game.opponent_tricode}</td>`;
                         statKeys.forEach(key => {
                             const isWhole = key.includes('sog');
                             const isPct = key.includes('pk_');
-                            const avgVal = totalAvgs[key] / numGames;
-                            let formattedAvg = isPct ? formatPercentage(avgVal) : formatNumber(avgVal, isWhole ? 0 : 2);
-                            tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-white">${formattedAvg}</td>`;
+                            const val = parseFloat(game[key]);
+                            if (!isNaN(val)) totalAvgs[key] += val;
+                            let formattedVal = isPct ? formatPercentage(game[key]) : formatNumber(game[key], isWhole ? 0 : 2);
+                            tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300">${formattedVal}</td>`;
                         });
                         tableHtml += `</tr>`;
-                    }
-                    tableHtml += `</tbody></table>`;
-                    document.getElementById('opponent-modal-content').innerHTML = tableHtml;
-                    modal.classList.remove('hidden');
+                    });
+                    const numGames = stats.length || 1;
+                    tableHtml += `<tr class="bg-gray-700 font-bold"><td class="px-2 py-1 text-sm text-white" colspan="2">Average</td>`;
+                    statKeys.forEach(key => {
+                        const isWhole = key.includes('sog');
+                        const isPct = key.includes('pk_');
+                        const avgVal = totalAvgs[key] / numGames;
+                        let formattedAvg = isPct ? formatPercentage(avgVal) : formatNumber(avgVal, isWhole ? 0 : 2);
+                        tableHtml += `<td class="px-2 py-1 whitespace-nowrap text-sm text-white">${formattedAvg}</td>`;
+                    });
+                    tableHtml += `</tr>`;
                 }
+                tableHtml += `</tbody></table>`;
+                document.getElementById('opponent-modal-content').innerHTML = tableHtml;
+                document.getElementById('opponent-stats-modal').classList.remove('hidden');
             }
         });
     }
