@@ -503,21 +503,39 @@
         const searchInput = document.getElementById('filter-search');
         const tagsNHL = document.getElementById('tags-nhl');
         const tagsPos = document.getElementById('tags-pos');
+        // --- NEW: Get Button ---
+        const clearBtn = document.getElementById('clear-selections-btn');
+
         if (!partnerSelect || !nhlSelect || !posSelect || !searchInput) return;
+
+        // --- NEW: Clear Button Listener ---
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                selectedPlayerIds.clear(); // Clear the Set
+                renderComparePage(); // Re-render tables (removes checkmarks)
+                // Note: renderComparePage calls updateSimulateButtonState, so the button will disable automatically
+            });
+        }
+
         if (partnerSelect.options.length === 1) {
+            // ... (Existing logic for population and other listeners remains the same) ...
             const teams = [...new Set(rosterData.players.map(p => p.fantasy_team_name))].sort();
             teams.forEach(team => {
                 if (team !== userTeamName && team !== 'Free Agent') {
-                    const opt = document.createElement('option'); opt.value = team; opt.textContent = team; partnerSelect.appendChild(opt);
+                    const opt = document.createElement('option'); opt.value = team; opt.textContent = team;
+                    partnerSelect.appendChild(opt);
                 }
             });
             partnerSelect.value = filterPartner;
+
             NHL_TEAMS.forEach(t => { const opt = document.createElement('option'); opt.value = t; opt.textContent = t; nhlSelect.appendChild(opt); });
+
             partnerSelect.addEventListener('change', (e) => { filterPartner = e.target.value; renderComparePage(); });
             nhlSelect.addEventListener('change', (e) => { if (e.target.value && !filterNHL.includes(e.target.value)) { filterNHL.push(e.target.value); renderFilterTags(tagsNHL, filterNHL, 'nhl'); renderComparePage(); } e.target.value = ""; });
             posSelect.addEventListener('change', (e) => { if (e.target.value && !filterPos.includes(e.target.value)) { filterPos.push(e.target.value); renderFilterTags(tagsPos, filterPos, 'pos'); renderComparePage(); } e.target.value = ""; });
             searchInput.addEventListener('input', (e) => { filterSearch = e.target.value; renderComparePage(); });
         }
+
         if (tagsNHL && tagsNHL.children.length === 0) renderFilterTags(tagsNHL, filterNHL, 'nhl');
         if (tagsPos && tagsPos.children.length === 0) renderFilterTags(tagsPos, filterPos, 'pos');
     }

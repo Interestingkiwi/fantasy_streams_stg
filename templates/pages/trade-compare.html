@@ -14,19 +14,38 @@
         </div>
 
         <div class="bg-gray-800 p-4 rounded-lg shadow border border-gray-700">
-            <h3 class="text-sm font-bold text-gray-400 uppercase mb-3">Filter Opponent Rosters</h3>
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="text-sm font-bold text-gray-400 uppercase">Filter Opponent Rosters</h3>
+                <button id="clear-selections-btn" class="text-xs text-red-400 hover:text-red-300 border border-red-500 hover:bg-red-900/30 rounded px-3 py-1 transition duration-200">
+                    Uncheck All Players
+                </button>
+            </div>
+
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-4">
-                    <select id="filter-partner" class="bg-gray-700 border border-gray-600 text-white text-xs rounded block w-full p-2"><option value="">All Opponents</option></select>
-                    <input type="text" id="filter-search" placeholder="Search Player Name..." class="bg-gray-700 border border-gray-600 text-white text-xs rounded block w-full p-2">
+                    <select id="filter-partner" class="bg-gray-700 border border-gray-600 text-white text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2">
+                        <option value="">All Opponents</option>
+                    </select>
+                    <input type="text" id="filter-search" placeholder="Search Player Name..." class="bg-gray-700 border border-gray-600 text-white text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2">
                 </div>
+
                 <div class="space-y-4">
                     <div class="flex flex-col gap-2">
-                        <select id="filter-nhl" class="bg-gray-700 border border-gray-600 text-white text-xs rounded block w-full p-2"><option value="" selected disabled>+ Filter NHL Team</option></select>
+                        <select id="filter-nhl" class="bg-gray-700 border border-gray-600 text-white text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2">
+                            <option value="" selected disabled>+ Filter NHL Team</option>
+                        </select>
                         <div id="tags-nhl" class="flex flex-wrap gap-1 min-h-[24px]"></div>
                     </div>
+
                     <div class="flex flex-col gap-2">
-                        <select id="filter-pos" class="bg-gray-700 border border-gray-600 text-white text-xs rounded block w-full p-2"><option value="" selected disabled>+ Filter Position</option><option value="C">Center (C)</option><option value="LW">Left Wing (LW)</option><option value="RW">Right Wing (RW)</option><option value="D">Defense (D)</option><option value="G">Goalie (G)</option></select>
+                        <select id="filter-pos" class="bg-gray-700 border border-gray-600 text-white text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2">
+                            <option value="" selected disabled>+ Filter Position</option>
+                            <option value="C">Center (C)</option>
+                            <option value="LW">Left Wing (LW)</option>
+                            <option value="RW">Right Wing (RW)</option>
+                            <option value="D">Defense (D)</option>
+                            <option value="G">Goalie (G)</option>
+                        </select>
                         <div id="tags-pos" class="flex flex-wrap gap-1 min-h-[24px]"></div>
                     </div>
                 </div>
