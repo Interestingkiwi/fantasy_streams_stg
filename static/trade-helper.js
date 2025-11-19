@@ -123,9 +123,14 @@
         // D. Handle Checkbox Changes (For Button State)
         document.body.addEventListener('change', (e) => {
             if (e.target.classList.contains('trade-player-checkbox')) {
-                const pid = parseInt(e.target.value);
-                if (e.target.checked) selectedPlayerIds.add(pid);
-                else selectedPlayerIds.delete(pid);
+                // Use String() to ensure consistent ID matching regardless of DB type
+                const pid = String(e.target.value);
+
+                if (e.target.checked) {
+                    selectedPlayerIds.add(pid);
+                } else {
+                    selectedPlayerIds.delete(pid);
+                }
                 updateSimulateButtonState();
             }
         });
