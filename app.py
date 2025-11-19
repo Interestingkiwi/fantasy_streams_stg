@@ -2214,7 +2214,6 @@ def get_category_strengths_data():
 
 
 @app.route('/api/trade_helper_data', methods=['POST'])
-@app.route('/api/trade_helper_data', methods=['POST'])
 def get_trade_helper_data():
     """
     Fetches category strength data and generates a league rank matrix.
@@ -2445,10 +2444,11 @@ def get_trade_helper_league_roster_data():
 
         # 6. Get Ranks AND Stats
         cat_rank_columns = [f"{cat}_cat_rank" for cat in all_scoring_categories]
+        raw_stat_columns = [f"'{cat}"' for cat in all_scoring_categories]
         valid_normalized_names = [p.get('player_name_normalized') for p in all_players if p.get('player_name_normalized')]
 
         if valid_normalized_names:
-            cols_to_select = list(set(cat_rank_columns + pp_cols + raw_stat_cols))
+            cols_to_select = list(set(cat_rank_columns + pp_cols + raw_stat_columns))
 
             # --- FIX: Quote columns to handle special chars like '/' ---
             quoted_cols = [f'"{col}"' for col in cols_to_select]
