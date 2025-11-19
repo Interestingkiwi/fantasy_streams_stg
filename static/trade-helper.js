@@ -21,39 +21,26 @@
     let filterSearch = "";
 
     // --- Simulation State ---
-    let selectedPlayerIds = new Set(); // Track selected checkboxes
+    let selectedPlayerIds = new Set();
     let rosterData = { players: [], skaterCategories: [], goalieCategories: [], currentWeek: 1 };
     let categoryData = { skater_stats: [], goalie_stats: [], league_rank_matrix: {}, total_teams: 12 };
 
-    // Constants
     const NHL_TEAMS = [
         "ANA", "BOS", "BUF", "CGY", "CAR", "CHI", "COL", "CBJ", "DAL", "DET",
         "EDM", "FLA", "LAK", "MIN", "MTL", "NSH", "NJD", "NYI", "NYR", "OTT",
         "PHI", "PIT", "SJS", "SEA", "STL", "TBL", "TOR", "UTA", "VAN", "VGK", "WSH", "WPG"
     ];
 
-    // --- Helpers ---
     function getHeatmapColor(rank) {
         if (rank === null || rank === undefined || rank === '-' || isNaN(rank)) return '';
         const minRank = 1; const maxRank = 20;
-        const clampedRank = Math.max(minRank, Math.min(rank, maxRank));
-        const percentage = (clampedRank - minRank) / (maxRank - minRank);
+        const clamped = Math.max(minRank, Math.min(rank, maxRank));
+        const percentage = (clamped - minRank) / (maxRank - minRank);
         const hue = (1 - percentage) * 120;
         return `hsl(${hue}, 65%, 75%)`;
     }
-    function formatPercentage(decimal) {
-        if (decimal == null) return 'N/A';
-        const num = parseFloat(decimal);
-        return isNaN(num) ? 'N/A' : (num * 100).toFixed(1) + '%';
-    }
-    function formatSecondsToMMSS(seconds) {
-        if (seconds == null) return 'N/A';
-        const s = parseInt(seconds, 10);
-        if (isNaN(s)) return 'N/A';
-        const minutes = Math.floor(s / 60);
-        const remaining = s % 60;
-        return `${minutes}:${remaining < 10 ? '0' : ''}${remaining}`;
-    }
+    function formatPercentage(decimal) { if (decimal == null) return 'N/A'; try { const num = parseFloat(decimal); if (isNaN(num)) return 'N/A'; return (num * 100).toFixed(1) + '%'; } catch (e) { return 'N/A'; } }
+    function formatSecondsToMMSS(seconds) { if (seconds == null) return 'N/A'; try { const s = parseInt(seconds, 10); if (isNaN(s)) return 'N/A'; const m = Math.floor(s / 60); const rs = s % 60; return `${m}:${rs < 10 ? '0' : ''}${rs}`; } catch (e) { return 'N/A'; } }
     function formatNullable(value) { return value ?? 'N/A'; }
 
 
@@ -63,8 +50,7 @@
             return;
         }
 
-        // --- 1. Inject Local Modal (PP Only) ---
-        // Trade helper typically doesn't need the Opponent Schedule modal, just PP
+        // --- 1. Inject Local Modal ---
         if (!document.getElementById('pp-stats-modal')) {
             const ppModalHTML = `
             <div id="pp-stats-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" style="backdrop-filter: blur(2px);">
@@ -77,15 +63,13 @@
             document.body.insertAdjacentHTML('beforeend', ppModalHTML);
         }
 
-        // --- 2. Global Event Listeners (Delegation) ---
+        // --- 2. Global Event Listeners ---
         document.body.addEventListener('click', (e) => {
-            // Close Button
             if (e.target.closest('#pp-modal-close') || e.target.id === 'pp-stats-modal') {
-                const m = document.getElementById('pp-stats-modal');
-                if (m) m.classList.add('hidden');
+                document.getElementById('pp-stats-modal').classList.add('hidden');
             }
 
-            // A. PP Util Cell Click
+            // A. PP Util Cell
             const ppCell = e.target.closest('.pp-util-cell');
             if (ppCell) {
                 const data = ppCell.dataset;
@@ -115,7 +99,7 @@
                 document.getElementById('pp-stats-modal').classList.remove('hidden');
             }
 
-            // B. Cat Rank Cell Click (Calls Global Modal)
+            // B. Cat Rank Cell (Global Modal)
             const rankCell = e.target.closest('.cat-rank-cell');
             if (rankCell && rosterData.players && window.openCatRankModal) {
                 const pid = String(rankCell.dataset.playerId);
@@ -128,16 +112,12 @@
                 }
             }
 
-            // C. Simulate Button Click
+            // C. Simulate Button
             const simBtn = e.target.closest('#simulate-trade-btn');
-            if (simBtn) {
-                if (!simBtn.disabled) {
-                    loadSubPage('trade-results');
-                }
-            }
+            if (simBtn && !simBtn.disabled) loadSubPage('trade-results');
         });
 
-        // D. Handle Checkbox Changes (For Button State)
+        // D. Checkbox Logic
         document.body.addEventListener('change', (e) => {
             if (e.target.classList.contains('trade-player-checkbox')) {
                 const pid = String(e.target.value);
@@ -149,17 +129,15 @@
 
         // --- 3. Listen for Raw Data Toggle ---
         window.addEventListener('rawDataToggled', (e) => {
-            if (currentSubPage === 'trade-compare') {
-                renderComparePage(); // Re-render active table
-            }
+            if (currentSubPage === 'trade-compare') renderComparePage();
         });
 
-        // --- 4. Page Initialization Logic ---
+        // --- 4. Init Logic ---
         yourTeamSelect.addEventListener('change', () => {
             userTeamName = yourTeamSelect.value;
             filterPartner = "";
             activeFromCats = []; activeToCats = [];
-            selectedPlayerIds.clear(); // Clear selections
+            selectedPlayerIds.clear();
             fetchAllData();
         });
 
@@ -231,7 +209,7 @@
         else if (currentSubPage === 'trade-results') renderResultsPage();
     }
 
-    // --- Trade Partners Logic ---
+    // --- Trade Partners (Unchanged) ---
     function renderPartnersPage() {
         const skaterContainer = document.getElementById('skater-table-container');
         const goalieContainer = document.getElementById('goalie-table-container');
@@ -285,15 +263,10 @@
     }
 
     function renderTradeMatches(container, matches) {
-        if (matches.length === 0) {
-            container.innerHTML = `<div class="col-span-full text-center p-4 bg-gray-700/50 rounded-lg text-gray-300">No perfect matches found.</div>`;
-            return;
-        }
+        if (matches.length === 0) { container.innerHTML = `<div class="col-span-full text-center p-4 bg-gray-700/50 rounded-lg text-gray-300">No perfect matches found.</div>`; return; }
         const formatForDisplay = (cats) => {
             let display = [...cats];
-            if (display.includes('SA') && display.includes('SV')) {
-                display = display.filter(c => c !== 'SA' && c !== 'SV'); display.push('Goalie Vol');
-            }
+            if (display.includes('SA') && display.includes('SV')) { display = display.filter(c => c !== 'SA' && c !== 'SV'); display.push('Goalie Vol'); }
             return display;
         };
         let html = '';
@@ -303,17 +276,9 @@
             html += `
             <div class="bg-gray-700/40 border border-gray-600 rounded-lg p-4 hover:bg-gray-700/70 transition duration-200 cursor-pointer"
                  onclick="window.selectTradeScenario('${m.team}', '${m.gives.join(',')}', '${m.gets.join(',')}')">
-                <h4 class="text-lg font-bold text-white mb-3 border-b border-gray-600 pb-2 flex justify-between items-center">
-                    ${m.team} <span class="text-xs font-normal text-blue-300 hover:underline">Compare &rarr;</span>
-                </h4>
-                <div class="mb-3">
-                    <p class="text-xs uppercase text-gray-400 font-bold mb-1">You Give (Surplus):</p>
-                    <div class="flex flex-wrap gap-2">${displayGives.map(cat => `<span class="px-2 py-1 text-xs font-bold rounded bg-green-900 text-green-200 border border-green-700">${cat}</span>`).join('')}</div>
-                </div>
-                <div>
-                    <p class="text-xs uppercase text-gray-400 font-bold mb-1">You Get (Need):</p>
-                    <div class="flex flex-wrap gap-2">${displayGets.map(cat => `<span class="px-2 py-1 text-xs font-bold rounded bg-blue-900 text-blue-200 border border-blue-700">${cat}</span>`).join('')}</div>
-                </div>
+                <h4 class="text-lg font-bold text-white mb-3 border-b border-gray-600 pb-2 flex justify-between items-center">${m.team} <span class="text-xs font-normal text-blue-300 hover:underline">Compare &rarr;</span></h4>
+                <div class="mb-3"><p class="text-xs uppercase text-gray-400 font-bold mb-1">You Give (Surplus):</p><div class="flex flex-wrap gap-2">${displayGives.map(cat => `<span class="px-2 py-1 text-xs font-bold rounded bg-green-900 text-green-200 border border-green-700">${cat}</span>`).join('')}</div></div>
+                <div><p class="text-xs uppercase text-gray-400 font-bold mb-1">You Get (Need):</p><div class="flex flex-wrap gap-2">${displayGets.map(cat => `<span class="px-2 py-1 text-xs font-bold rounded bg-blue-900 text-blue-200 border border-blue-700">${cat}</span>`).join('')}</div></div>
             </div>`;
         });
         container.innerHTML = html;
@@ -406,8 +371,6 @@
         const multiSortFn = (keys) => (a, b) => {
             if (!keys || keys.length === 0) return 0;
             for (let key of keys) {
-                // Sort based on currently displayed metric?
-                // Usually trade helper sorts by RANK, regardless of display mode, to find "Best".
                 let rankKey = key + '_cat_rank';
                 let rA = a[rankKey], rB = b[rankKey];
                 if (rA == null || rA === 0) rA = 999;
@@ -526,9 +489,8 @@
 
         if (!partnerSelect || !nhlSelect || !posSelect || !searchInput) return;
 
-        // --- Clear Button Logic ---
+        // Clear Button Logic
         if (clearBtn) {
-            // Remove existing to avoid dupes (though init only runs once per page load usually)
             const newBtn = clearBtn.cloneNode(true);
             clearBtn.parentNode.replaceChild(newBtn, clearBtn);
             newBtn.addEventListener('click', () => {
@@ -541,11 +503,14 @@
             const teams = [...new Set(rosterData.players.map(p => p.fantasy_team_name))].sort();
             teams.forEach(team => {
                 if (team !== userTeamName && team !== 'Free Agent') {
-                    const opt = document.createElement('option'); opt.value = team; opt.textContent = team; partnerSelect.appendChild(opt);
+                    const opt = document.createElement('option'); opt.value = team; opt.textContent = team;
+                    partnerSelect.appendChild(opt);
                 }
             });
             partnerSelect.value = filterPartner;
+
             NHL_TEAMS.forEach(t => { const opt = document.createElement('option'); opt.value = t; opt.textContent = t; nhlSelect.appendChild(opt); });
+
             partnerSelect.addEventListener('change', (e) => { filterPartner = e.target.value; renderComparePage(); });
             nhlSelect.addEventListener('change', (e) => { if (e.target.value && !filterNHL.includes(e.target.value)) { filterNHL.push(e.target.value); renderFilterTags(tagsNHL, filterNHL, 'nhl'); renderComparePage(); } e.target.value = ""; });
             posSelect.addEventListener('change', (e) => { if (e.target.value && !filterPos.includes(e.target.value)) { filterPos.push(e.target.value); renderFilterTags(tagsPos, filterPos, 'pos'); renderComparePage(); } e.target.value = ""; });
@@ -573,7 +538,7 @@
     function renderRosterTable(container, players, categories, showTeamColumn) {
         if (!players || players.length === 0) { container.innerHTML = `<p class="text-gray-400 p-4">No players found matching criteria.</p>`; return; }
 
-        // --- [START] NEW: Check Show Raw ---
+        // --- Check Show Raw ---
         const showRaw = localStorage.getItem('showRawData') === 'true';
 
         let html = `<div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-700 text-sm"><thead class="bg-gray-700/50"><tr>`;
@@ -585,6 +550,11 @@
         html += `<th class="px-2 py-1 text-center font-bold text-gray-300" title="Power Play Utilization">PP Util</th>`;
         categories.forEach(cat => html += `<th class="px-2 py-1 text-center font-bold text-gray-300" title="${cat}">${cat}</th>`);
         html += `</tr></thead><tbody class="bg-gray-800 divide-y divide-gray-700">`;
+
+        // --- Debugging: Log first player data ---
+        if (players.length > 0) {
+            // console.log("DEBUG Roster Player:", players[0]);
+        }
 
         players.forEach(p => {
             const isChecked = selectedPlayerIds.has(String(p.player_id)) ? 'checked' : '';
@@ -600,7 +570,7 @@
             let catSum = 0, validRanks = 0;
             categories.forEach(cat => { const r = p[cat + '_cat_rank']; if (r != null) { catSum += r; validRanks++; } });
 
-            // --- NEW: Clickable Cat Rank ---
+            // --- Clickable Cat Rank ---
             html += `<td class="px-2 py-1 text-center font-bold text-white cursor-pointer hover:text-blue-400 cat-rank-cell" data-player-id="${p.player_id}">${validRanks > 0 ? Math.round(catSum) : '-'}</td>`;
 
             // PP Util
@@ -608,19 +578,20 @@
                 html += `<td class="px-2 py-1 whitespace-nowrap text-sm text-gray-300 cursor-pointer hover:bg-gray-700 pp-util-cell" data-player-name="${p.player_name}" data-lg-pp-toi="${p.lg_ppTimeOnIce}" data-lg-pp-pct="${p.lg_ppTimeOnIcePctPerGame}" data-lg-ppa="${p.lg_ppAssists}" data-lg-ppg="${p.lg_ppGoals}" data-lw-pp-toi="${p.avg_ppTimeOnIce}" data-lw-pp-pct="${p.avg_ppTimeOnIcePctPerGame}" data-lw-ppa="${p.total_ppAssists}" data-lw-ppg="${p.total_ppGoals}" data-lw-gp="${p.team_games_played}">${formatPercentage(p.avg_ppTimeOnIcePctPerGame)}</td>`;
             } else { html += `<td class="px-2 py-1 text-center text-gray-500">-</td>`; }
 
-            // Stats
             categories.forEach(cat => {
-                let displayVal = '-', cellStyle = '';
+                let displayValue = '-', cellStyle = '';
                 if (showRaw) {
+                    // --- Raw Data ---
                     const val = p[cat];
-                    displayVal = (val != null && !isNaN(val)) ? parseFloat(val).toFixed(2).replace(/[.,]00$/, "") : (val || '-');
+                    displayValue = (val != null && !isNaN(val)) ? parseFloat(val).toFixed(2).replace(/[.,]00$/, "") : (val || '-');
                     cellStyle = 'text-gray-400';
                 } else {
+                    // --- Rank Data ---
                     const rank = p[cat + '_cat_rank'];
                     displayValue = (rank != null) ? Math.round(rank) : '-';
                     cellStyle = `background-color: ${getHeatmapColor(rank)}; color: #1f2937; font-weight: 600;`;
                 }
-                html += `<td class="px-2 py-1 text-center font-semibold ${cellStyle}" style="${cellStyle.includes(':') ? cellStyle : ''}">${displayVal}</td>`;
+                html += `<td class="px-2 py-1 text-center font-semibold ${cellStyle}" style="${cellStyle.includes(':') ? cellStyle : ''}">${displayValue}</td>`;
             });
             html += `</tr>`;
         });
@@ -628,7 +599,7 @@
         container.innerHTML = html;
     }
 
-    // ... (renderResultsPage, calculateTradeImpact, renderImpactTable Unchanged) ...
+    // ... (Keep renderResultsPage, calculateTradeImpact, renderImpactTable) ...
     function renderResultsPage() {
         const userContainer = document.getElementById('results-user-container');
         const oppContainer = document.getElementById('results-opponent-container');
@@ -647,12 +618,8 @@
 
     function calculateTradeImpact(userTeam, oppTeam, userGiving, oppGiving) {
         const completedWeeks = Math.max(1, rosterData.currentWeek - 1);
-        const leagueTotals = JSON.parse(JSON.stringify(categoryData.league_raw_stats)); // Use raw stats from server
-
-        if (!leagueTotals || !leagueTotals[userTeam]) {
-            console.error("Missing league_raw_stats data.");
-            return { userImpact: [], oppImpact: [] };
-        }
+        const leagueTotals = JSON.parse(JSON.stringify(categoryData.league_raw_stats));
+        if (!leagueTotals || !leagueTotals[userTeam]) { console.error("Missing league_raw_stats data."); return { userImpact: [], oppImpact: [] }; }
 
         const adjustTeam = (teamName, outgoingPlayers, incomingPlayers) => {
             const totals = { ...leagueTotals[teamName] };
