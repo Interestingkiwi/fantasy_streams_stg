@@ -3,30 +3,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const timestampText = document.getElementById('timestamp-text');
     const dropdownContainer = document.getElementById('dropdown-container');
 
-    // --- FIX: Event Delegation for Raw Data Toggle ---
+    // --- Event Delegation for Raw Data Toggle ---
     document.addEventListener('change', (e) => {
         if (e.target && e.target.id === 'global-show-raw-data') {
             const val = e.target.checked;
             localStorage.setItem('showRawData', val);
-            // Notify all other scripts
             window.dispatchEvent(new CustomEvent('rawDataToggled', { detail: { showRaw: val } }));
         }
     });
 
-    // --- Global Cat Rank Modal ---
-    const modal = document.getElementById('global-cat-rank-modal');
-    const closeBtn = document.getElementById('global-modal-close');
-    const modalContent = document.getElementById('global-modal-content');
-    const modalTitle = document.getElementById('global-modal-title');
+    // --- Global Cat Rank Modal Logic ---
+    // Use event delegation for close button to prevent staleness
+    document.addEventListener('click', (e) => {
+        const modal = document.getElementById('global-cat-rank-modal');
+        if (!modal) return;
+        if (e.target.closest('#global-modal-close') || e.target === modal) {
+            modal.classList.add('hidden');
+        }
+    });
 
-    if (closeBtn && modal) {
-        closeBtn.onclick = () => modal.classList.add('hidden');
-        modal.onclick = (e) => { if (e.target === modal) modal.classList.add('hidden'); };
-    }
-
-    // Global function to open modal
+    // Global function to open modal (Always fetches fresh DOM element)
     window.openCatRankModal = function(playerObj, categories) {
-        if (!modal || !modalContent) return;
+        const modal = document.getElementById('global-cat-rank-modal');
+        const modalContent = document.getElementById('global-modal-content');
+        const modalTitle = document.getElementById('global-modal-title');
+
+        if (!modal || !modalContent) {
+            console.error("Global modal element not found!");
+            return;
+        }
 
         const showingRawMain = localStorage.getItem('showRawData') === 'true';
         const showRanksInModal = showingRawMain; // Inverse logic
@@ -69,12 +74,10 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch('/api/db_timestamp');
             const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Failed to fetch timestamp.');
-
-            if (data.timestamp) {
+            if (response.ok && data.timestamp) {
                 timestampText.textContent = `League data exists, check League Database tab for last update`;
             } else {
-                timestampText.textContent = 'League data has not been updated yet. Please visit the League Database page.';
+                timestampText.textContent = 'League data has not been updated yet.';
             }
         } catch (error) {
             console.error('Error setting timestamp:', error);
@@ -93,7 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Re-build HTML, ensuring all controls are present
+            // --- FIX: REMOVED THE MODAL FROM THIS STRING ---
             dropdownContainer.innerHTML = `
                 <div class="flex items-center gap-2">
                     <label for="week-select" class="text-sm font-medium text-gray-300">Fantasy Week:</label>
@@ -151,16 +154,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ... (Rest of file: populateDropdowns, populateStatSourcingDropdown, handlers remain unchanged) ...
     function populateDropdowns() {
         const weekSelect = document.getElementById('week-select');
         const yourTeamSelect = document.getElementById('your-team-select');
-
-        weekSelect.innerHTML = pageData.weeks.map(week => `<option value="${week.week_num}">Week ${week.week_num} (${week.start_date} to ${week.end_date})</option>`).join('');
-        yourTeamSelect.innerHTML = pageData.teams.map(team => `<option value="${team.name}">${team.name}</option>`).join('');
-
+        weekSelect.innerHTML = pageData.weeks.map(w => `<option value="${w.week_num}">Week ${w.week_num} (${w.start_date} to ${w.end_date})</option>`).join('');
+        yourTeamSelect.innerHTML = pageData.teams.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
         const savedTeam = localStorage.getItem('selectedTeam');
         if (savedTeam) yourTeamSelect.value = savedTeam;
-
         if (!sessionStorage.getItem('fantasySessionStarted')) {
             const currentWeek = pageData.current_week;
             weekSelect.value = currentWeek;
@@ -176,7 +177,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function populateStatSourcingDropdown() {
         const statSourcingSelect = document.getElementById('stat-sourcing-select');
         if (!statSourcingSelect) return;
-
         const savedStatSourcing = localStorage.getItem('selectedStatSourcing');
         if (savedStatSourcing) {
             statSourcingSelect.value = savedStatSourcing;

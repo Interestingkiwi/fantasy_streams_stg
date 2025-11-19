@@ -3131,12 +3131,12 @@ def get_free_agent_data():
         cursor.execute("SELECT player_id FROM waiver_players")
         waiver_player_ids = [row['player_id'] for row in cursor.fetchall()]
         # --- MODIFIED: Pass only team_stats_map ---
-        waiver_players = _get_ranked_players(cursor, waiver_player_ids, cat_rank_columns, raw_stat_columns, target_week, team_stats_map, sourcing)
+        waiver_players = _get_ranked_players(cursor, waiver_player_ids, all_cat_rank_columns, raw_stat_columns, target_week, team_stats_map, sourcing)
 
         cursor.execute("SELECT player_id FROM free_agents")
         free_agent_ids = [row['player_id'] for row in cursor.fetchall()]
         # --- MODIFIED: Pass only team_stats_map ---
-        free_agents = _get_ranked_players(cursor, free_agent_ids, cat_rank_columns, raw_stat_columns, target_week, team_stats_map, sourcing)
+        free_agents = _get_ranked_players(cursor, free_agent_ids, all_cat_rank_columns, raw_stat_columns, target_week, team_stats_map, sourcing)
 
         # Recalculate total_cat_rank
         for player_list in [waiver_players, free_agents]:
