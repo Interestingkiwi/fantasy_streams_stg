@@ -589,122 +589,127 @@
             }
 
             function calculateTradeImpact(userTeam, oppTeam, userGiving, oppGiving) {
-                // Logic:
-                // 1. Get Season Totals for ALL teams from DB (Need to reconstruct this from categoryData if available, or fetch?)
-                //    Actually, calculateTradeImpact needs raw totals for every team to re-rank.
-                //    Current `categoryData.skater_stats` only has User totals.
-                //    We need to re-fetch or store the raw matrix.
-                //    *Correction*: We didn't store raw totals for all teams in JS. We only have ranks.
-                //    *Solution*: We must approximate using Ranks? No, inaccurate.
-                //    *Better Solution*: Use the `rosterData.players`. Summing up every player for every team is heavy but accurate.
-
                 const completedWeeks = Math.max(1, rosterData.currentWeek - 1);
-                const skaterFactor = 3.4 * completedWeeks; // Projected rest of season? No, logic says "multiply back by completed weeks"
-                // Prompt Logic: (Total / CompletedWeeks) +/- (PlayerAvg * 3.4) -> New Weekly Avg -> * CompletedWeeks = New Total
 
-                // Group all players by team to calculate current league totals
-                const leagueTotals = {}; // { 'Team A': { 'G': 100, 'A': 50... } }
+                // Initialize League Totals from roster data
+                const leagueTotals = {};
 
-                // Initialize League Totals
+                // --- 1. Build Current League Totals ---
+                // Note: Because we don't have the Team Season Totals available in this JS scope directly
+                // (they were in categoryData but only as Ranks for non-user teams),
+                // we have to approximate them by summing the per-game averages of all players
+                // and multiplying by the completed weeks * 3.4 (skater factor) / 2.0 (goalie factor).
+                // This ensures the "Before" and "After" are calculated using the SAME methodology.
+
                 rosterData.players.forEach(p => {
                     const team = p.fantasy_team_name;
-                    if (team === 'Free Agent') return;
+                    if (team === 'Free Agent' || !team) return;
                     if (!leagueTotals[team]) leagueTotals[team] = {};
 
-                    // Sum Stats
+                    const isGoalie = (p.eligible_positions || '').includes('G');
+                    const factor = (isGoalie ? 2.0 : 3.4) * completedWeeks;
+
                     const allCats = [...rosterData.skaterCategories, ...rosterData.goalieCategories, 'GA', 'SV', 'SA', 'TOI/G'];
+
                     allCats.forEach(cat => {
-                        const val = parseFloat(p[cat] || 0); // Raw stat from DB
-                        leagueTotals[team][cat] = (leagueTotals[team][cat] || 0) + (isNaN(val) ? 0 : val);
+                        const rate = parseFloat(p[cat] || 0);
+                        const val = isNaN(rate) ? 0 : rate;
+                        leagueTotals[team][cat] = (leagueTotals[team][cat] || 0) + (val * factor);
                     });
                 });
 
-                // Helper to adjust team
+                // --- 2. Recalculate Ratios for Base Totals ---
+                // We must do this so the "Old Rank" is consistent with our "New Rank" logic
+                Object.keys(leagueTotals).forEach(team => {
+                    const t = leagueTotals[team];
+                    if (t['TOI/G'] > 0) t['GAA'] = (t['GA'] * 60) / t['TOI/G'];
+                    if (t['SA'] > 0) t['SVpct'] = t['SV'] / t['SA'];
+                });
+
+                // --- 3. Adjust Teams Function ---
                 const adjustTeam = (teamName, outgoingPlayers, incomingPlayers) => {
-                    const totals = { ...leagueTotals[teamName] }; // Copy
+                    const totals = { ...leagueTotals[teamName] }; // Copy current totals
                     const cats = [...rosterData.skaterCategories, ...rosterData.goalieCategories, 'GA', 'SV', 'SA', 'TOI/G'];
 
                     cats.forEach(cat => {
-                        const currentTotal = totals[cat] || 0;
-                        const weeklyAvg = currentTotal / completedWeeks;
-
-                        let change = 0;
+                        let change = 0; // Change in PER WEEK output
 
                         // Outgoing
                         outgoingPlayers.forEach(p => {
                             const isGoalie = (p.eligible_positions || '').includes('G');
-                            const rawVal = parseFloat(p[cat] || 0);
-                            const gp = parseFloat(p.games_played || 1);
-                            const perGame = rawVal / (gp > 0 ? gp : 1);
+                            // --- FIX: Use raw value directly as rate ---
+                            const rate = parseFloat(p[cat] || 0);
                             const factor = isGoalie ? 2.0 : 3.4;
-                            change -= (perGame * factor);
+                            change -= (rate * factor);
                         });
 
                         // Incoming
                         incomingPlayers.forEach(p => {
                             const isGoalie = (p.eligible_positions || '').includes('G');
-                            const rawVal = parseFloat(p[cat] || 0);
-                            const gp = parseFloat(p.games_played || 1);
-                            const perGame = rawVal / (gp > 0 ? gp : 1);
+                            // --- FIX: Use raw value directly as rate ---
+                            const rate = parseFloat(p[cat] || 0);
                             const factor = isGoalie ? 2.0 : 3.4;
-                            change += (perGame * factor);
+                            change += (rate * factor);
                         });
 
-                        const newWeekly = Math.max(0, weeklyAvg + change); // No negative stats
-                        totals[cat] = newWeekly * completedWeeks;
+                        // Update Total: Current + (WeeklyChange * CompletedWeeks)
+                        // Note: The logic requested was "multiply weeklytotals back by completed weeks".
+                        // Since 'totals[cat]' is already the Season Total, we add the (Change * Weeks).
+                        totals[cat] = Math.max(0, totals[cat] + (change * completedWeeks));
                     });
 
-                    // Recalc Ratios
+                    // Recalc Ratios after adjustment
                     if (totals['TOI/G'] > 0) totals['GAA'] = (totals['GA'] * 60) / totals['TOI/G'];
                     if (totals['SA'] > 0) totals['SVpct'] = totals['SV'] / totals['SA'];
 
                     return totals;
                 };
 
-                // Apply Trades
-                const newUserTotals = adjustTeam(userTeam, userGiving, oppGiving);
-                const newOppTotals = adjustTeam(oppTeam, oppGiving, userGiving);
+                // --- 4. Create Scenarios ---
+                // Create a temporary league state for "After"
+                const newLeagueTotals = JSON.parse(JSON.stringify(leagueTotals)); // Deep copy
 
-                // Update League Totals for Re-ranking
-                leagueTotals[userTeam] = newUserTotals;
-                leagueTotals[oppTeam] = newOppTotals;
+                newLeagueTotals[userTeam] = adjustTeam(userTeam, userGiving, oppGiving);
+                newLeagueTotals[oppTeam] = adjustTeam(oppTeam, oppGiving, userGiving);
 
-                // Re-Rank Function
-                const calculateRanks = (targetTeamName) => {
+                // --- 5. Rank Function ---
+                const calculateRankShift = (targetTeam, categories) => {
                     const result = [];
-                    const allCats = [...rosterData.skaterCategories, ...rosterData.goalieCategories];
                     const reverseCats = ['GA', 'GAA', 'L'];
 
-                    allCats.forEach(cat => {
+                    categories.forEach(cat => {
                         // Exclude sub-cats from visual table
                         if (cat === 'GA' || cat === 'SV' || cat === 'SA') return;
 
-                        const myVal = leagueTotals[targetTeamName][cat] || 0;
-
-                        // Get all values for this cat to rank
-                        const allValues = Object.values(leagueTotals).map(t => t[cat] || 0);
+                        // A. Calculate OLD Rank (using original leagueTotals)
+                        const oldVals = Object.values(leagueTotals).map(t => t[cat] || 0);
                         const isRev = reverseCats.includes(cat);
-                        allValues.sort((a, b) => isRev ? a - b : b - a);
+                        oldVals.sort((a, b) => isRev ? a - b : b - a);
+                        const oldVal = leagueTotals[targetTeam][cat] || 0;
+                        const oldRank = oldVals.indexOf(oldVal) + 1;
 
-                        const newRank = allValues.indexOf(myVal) + 1;
-
-                        // Get Old Rank (from categoryData or re-calc from original leagueTotals? Safer to re-calc original)
-                        // For simplicity/speed, we assume the `categoryData.league_rank_matrix` is accurate for "Before"
-                        const oldRank = categoryData.league_rank_matrix[targetTeamName] ? categoryData.league_rank_matrix[targetTeamName][cat] : '-';
+                        // B. Calculate NEW Rank (using newLeagueTotals)
+                        const newVals = Object.values(newLeagueTotals).map(t => t[cat] || 0);
+                        newVals.sort((a, b) => isRev ? a - b : b - a);
+                        const newVal = newLeagueTotals[targetTeam][cat] || 0;
+                        const newRank = newVals.indexOf(newVal) + 1;
 
                         result.push({
                             category: cat,
                             oldRank: oldRank,
                             newRank: newRank,
-                            change: (oldRank !== '-' ? oldRank - newRank : 0) // Positive change means Rank went down (improved, e.g. 5 -> 2 = +3)
+                            // Positive change means Rank went DOWN (e.g. 5 -> 2 = +3 improvement)
+                            change: oldRank - newRank
                         });
                     });
                     return result;
                 };
 
+                const allCatsToRank = [...rosterData.skaterCategories, ...rosterData.goalieCategories];
+
                 return {
-                    userImpact: calculateRanks(userTeam),
-                    oppImpact: calculateRanks(oppTeam)
+                    userImpact: calculateRankShift(userTeam, allCatsToRank),
+                    oppImpact: calculateRankShift(oppTeam, allCatsToRank)
                 };
             }
 

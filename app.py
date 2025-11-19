@@ -2388,7 +2388,8 @@ def get_trade_helper_data():
 @app.route('/api/trade_helper_league_roster_data', methods=['POST'])
 def get_trade_helper_league_roster_data():
     """
-    Fetches ALL rostered players, including Raw Stats, Ranks, and PP Stats.
+    Fetches ALL rostered players.
+    Updates: Fetches Raw Stats (assumed to be per-game rates) and PP Stats.
     """
     league_id = session.get('league_id')
     data = request.get_json()
@@ -2402,7 +2403,7 @@ def get_trade_helper_league_roster_data():
     try:
         cursor = conn.cursor()
 
-        # 0. Get Current Week (For calculation logic)
+        # 0. Get Current Week
         today = date.today().isoformat()
         cursor.execute("SELECT week_num FROM weeks WHERE start_date <= ? AND end_date >= ?", (today, today))
         current_week_row = cursor.fetchone()
@@ -2420,14 +2421,15 @@ def get_trade_helper_league_roster_data():
         all_scoring_categories = skater_categories + goalie_categories
 
         # 3. Define Columns to Fetch
-        # A. PP Stats
         pp_cols = [
             'avg_ppTimeOnIcePctPerGame', 'lg_ppTimeOnIce', 'lg_ppTimeOnIcePctPerGame',
             'lg_ppAssists', 'lg_ppGoals', 'avg_ppTimeOnIce', 'total_ppAssists',
             'total_ppGoals', 'team_games_played'
         ]
-        # B. Raw Scoring Cats + Base Stats needed for calcs
-        raw_stat_cols = list(set(all_scoring_categories) | {'games_played', 'GA', 'SV', 'SA', 'TOI/G'})
+
+        # --- FIX: Removed 'games_played', 'GP', 'GS' ---
+        # We just fetch the stats themselves, plus base goalie stats needed for ratios
+        raw_stat_cols = list(set(all_scoring_categories) | {'GA', 'SV', 'SA', 'TOI/G'})
 
         # 4. Get all players
         cursor.execute("""
@@ -2452,10 +2454,7 @@ def get_trade_helper_league_roster_data():
 
         player_stats = {}
         if valid_normalized_names:
-            # Combine all needed columns
-            cols_to_select = cat_rank_columns + pp_cols + raw_stat_cols
-            # Remove duplicates just in case
-            cols_to_select = list(set(cols_to_select))
+            cols_to_select = list(set(cat_rank_columns + pp_cols + raw_stat_cols))
 
             placeholders = ','.join('?' for _ in valid_normalized_names)
             query = f"""
@@ -2469,7 +2468,6 @@ def get_trade_helper_league_roster_data():
         for player in all_players:
             p_stats = player_stats.get(player.get('player_name_normalized'))
             if p_stats:
-                # Add everything from p_stats to player object
                 for key, val in p_stats.items():
                     player[key] = val
             else:
@@ -2488,7 +2486,7 @@ def get_trade_helper_league_roster_data():
         return jsonify({'error': f"An error occurred: {e}"}), 500
     finally:
         if conn: conn.close()
-
+        
 
 
 @app.route('/api/schedules_page_data')
