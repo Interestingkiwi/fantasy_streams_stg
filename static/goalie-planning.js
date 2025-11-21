@@ -10,7 +10,6 @@
     const weekSelect = document.getElementById('week-select');
     const yourTeamSelect = document.getElementById('your-team-select');
     const opponentSelect = document.getElementById('opponent-select');
-    const goalieSelect = document.getElementById('goalie-select');
 
     // Containers
     const currentStatsContainer = document.getElementById('current-stats-container');
@@ -26,8 +25,6 @@
     let opponentTotals = {};    // "Frozen" totals for Opponent
     let yourTeamName = "";      // Your team's name
     let opponentTeamName = "";  // Opponent's name
-    let currentGoalieStats = {}; // Store current selected goalie's stats
-    let nhlSchedule = [];        // Store schedule
 
     // --- Constants ---
     const SCENARIOS = [
@@ -50,82 +47,45 @@
 
     async function init() {
         try {
-            // 1. Fetch base page data (weeks, teams, matchups)
-            const response = await fetch('/api/matchup_page_data');
-            pageData = await response.json();
+            // Add event listener for checkbox clicks
+            individualStartsContainer.addEventListener('click', handleCheckboxClick);
 
-            if (!response.ok || !pageData.db_exists) {
-                throw new Error(pageData.error || 'Database has not been initialized.');
-            }
+            // Fetch page data (weeks, teams, matchups)
+            await fetchPageData();
 
-            // 2. Populate Dropdowns (Week, Team, Opponent)
+            // Populate dropdowns
             populateDropdowns();
-            updateOpponentDropdown();
 
-            // 3. Setup Listeners
+            // Set up event listeners for dropdowns
             setupEventListeners();
 
-            // 4. Initial data fetch and render (NEW FUNCTION)
-            await fetchData();
+            // Set initial opponent
+            updateOpponentDropdown();
 
-            // 5. Show controls
-            controlsDiv.style.display = 'flex';
+            // Initial data load for stats
+            await fetchAndRenderStats();
+
+            controlsDiv.classList.remove('hidden');
 
         } catch (error) {
             console.error('Initialization error:', error);
-            errorDiv.textContent = `Error loading page: ${error.message}. Please build the database or try again.`;
-            errorDiv.style.display = 'block';
-            controlsDiv.style.display = 'none';
+            errorDiv.textContent = error.message;
+            errorDiv.classList.remove('hidden');
+            controlsDiv.classList.add('hidden');
         }
     }
 
     /**
      * Fetches static page data like weeks, teams, and matchups.
      */
-     async function fetchData() {
-         const week = weekSelect.value;
-         const yourTeamId = yourTeamSelect.value;
-
-         if (!week || !yourTeamId) {
-             goalieSelect.innerHTML = '<option value="" disabled>Select Week/Team first</option>';
-             return;
-         }
-
-         // Add Sourcing to the URL
-         const selectedSourcing = localStorage.getItem('selectedStatSourcing') || 'projected';
-         const url = `/api/goalie_planning_data?week=${week}&your_team_id=${yourTeamId}&sourcing=${selectedSourcing}`;
-
-         try {
-             const response = await fetch(url);
-             const data = await response.json();
-
-             if (!response.ok) {
-                 throw new Error(data.error || 'Failed to fetch goalie data');
-             }
-
-             // Store global data
-             nhlSchedule = data.schedule; // Store schedule for future use
-
-             // Populate the Goalie Select Dropdown
-             populateGoalieDropdown(data.rostered_goalies, data.free_agent_goalies);
-
-             // Initial Goalie Selection (If a goalie is pre-selected, fetch their stats)
-             if (goalieSelect.value) {
-                 // Future step: Trigger the logic to fetch stats for the selected goalie
-                 // For now, we just populate the dropdown.
-             }
-
-             // Clear current simulation state
-             baseStarts = [];
-             simulatedStarts = [];
-             renderAllTables(); // Render empty tables until a goalie is chosen
-
-         } catch (error) {
-             console.error('Error fetching goalie data:', error);
-             errorDiv.textContent = `Error fetching data: ${error.message}`;
-             errorDiv.style.display = 'block';
-         }
-     }
+    async function fetchPageData() {
+        const response = await fetch('/api/matchup_page_data');
+        const data = await response.json();
+        if (!response.ok || !data.db_exists) {
+            throw new Error(data.error || 'Database has not been initialized.');
+        }
+        pageData = data;
+    }
 
     /**
      * Populates the Week, Your Team, and Opponent dropdowns.
@@ -163,36 +123,6 @@
         }
     }
 
-
-    /**
-         * Populates the Goalie Select dropdown with Rostered and Free Agent Goalies.
-         */
-        function populateGoalieDropdown(rostered, freeAgents) {
-            let optionsHtml = '<option value="" selected disabled>-- Select Goalie --</option>';
-
-            // 1. Rostered Goalies (top section)
-            rostered.forEach(g => {
-                optionsHtml += `<option value="${g.player_id}"
-                                data-svpct="${g.SVpct}"
-                                data-team="${g.player_team}">
-                                ${g.player_name} (${g.player_team}) (Rostered)
-                                </option>`;
-            });
-
-            // 2. Free Agents (sorted by total_cat_rank)
-            // Note: The API already sorts FAs by rank (ascending: 1 is best).
-            freeAgents.forEach(g => {
-                 optionsHtml += `<option value="${g.player_id}"
-                                 data-svpct="${g.SVpct}"
-                                 data-team="${g.player_team}">
-                                 ${g.player_name} (${g.player_team}) (Free Agent) - Rank ${Math.round(g.total_cat_rank)}
-                                 </option>`;
-            });
-
-            goalieSelect.innerHTML = optionsHtml;
-        }
-
-
     /**
      * Sets up change listeners for the dropdowns.
      */
@@ -210,18 +140,7 @@
         opponentSelect.addEventListener('change', async () => {
             await fetchAndRenderStats();
         });
-        goalieSelect.addEventListener('change', handleGoalieSelection);
     }
-
-    function handleGoalieSelection() {
-        // Future logic will go here:
-        // 1. Get SVpct and Team of selected goalie
-        // 2. Calculate Opponent Stats (SOG/GA) based on NHL schedule and team stats
-        // 3. Populate baseStarts for simulation
-        // 4. Render tables
-        console.log("Goalie selected, ready for simulation logic.");
-    }
-
 
     /**
      * Automatically selects the opponent based on the matchup data.
@@ -265,7 +184,7 @@
         individualStartsContainer.innerHTML = '';
 
         try {
-            const response = await fetch('/api/goalie_planning_data', {
+            const response = await fetch('/api/goalie_planning_stats', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
