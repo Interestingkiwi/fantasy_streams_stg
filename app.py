@@ -3360,7 +3360,6 @@ def _get_team_goalie_stats(cursor, team_id, start_date_str, end_date_str):
 
 
 @app.route('/api/goalie_planning_data')
-@login_required
 def get_goalie_planning_data():
     """
     Fetches all data required for the goalie planning tool, including
