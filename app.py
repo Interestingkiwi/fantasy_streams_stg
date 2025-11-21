@@ -670,6 +670,45 @@ def _get_ranked_players(cursor, player_ids, cat_rank_columns, raw_stat_columns, 
     return players
 
 
+def _fetch_goalies_with_ranks(conn, team_id, sourcing, is_roster):
+    """
+    Fetches goalies for a specific team (roster) or all FAs (free_agents).
+    Ranks are included from the specified sourcing table.
+    """
+    stat_table = get_stat_source_table(sourcing)
+
+    # 1. Define base query and join condition
+    if is_roster:
+        # Fetch goalies on the user's roster
+        join_condition = "JOIN rosters_tall r ON j.player_id = r.player_id WHERE r.team_id = ? AND j.positions LIKE '%G%'"
+        params = (team_id,)
+    else:
+        # Fetch all free agent goalies
+        join_condition = "JOIN free_agents fa ON j.player_id = fa.player_id WHERE j.positions LIKE '%G%'"
+        params = ()
+
+    # 2. Define Columns to Select
+    # Using 'total_cat_rank' for sorting
+    columns_to_select = [
+        'j.player_id', 'j.player_name', 'j.player_team', 'j.positions', 'j.status',
+        f'j.SVpct', f'j.total_cat_rank'
+    ]
+
+    query = f"""
+        SELECT {', '.join(columns_to_select)}
+        FROM {stat_table} j
+        {join_condition}
+        ORDER BY j.total_cat_rank ASC
+    """
+
+    try:
+        df = pd.read_sql_query(query, conn, params=params)
+        return df.to_dict('records')
+    except Exception as e:
+        logging.error(f"Error fetching goalies for is_roster={is_roster}: {e}", exc_info=True)
+        return []
+
+
 @app.route('/healthz')
 def health_check():
     return "OK", 200
@@ -3320,59 +3359,63 @@ def _get_team_goalie_stats(cursor, team_id, start_date_str, end_date_str):
     }
 
 
-@app.route('/api/goalie_planning_stats', methods=['POST'])
-def get_goalie_planning_stats():
-    league_id = session.get('league_id')
-    data = request.get_json()
-    week_num = data.get('week')
-    your_team_name = data.get('your_team_name')
-    opponent_team_name = data.get('opponent_team_name')
+@app.route('/api/goalie_planning_data')
+@login_required
+def get_goalie_planning_data():
+    """
+    Fetches all data required for the goalie planning tool, including
+    roster/FA goalies, team stats, and the NHL schedule.
+    """
+    week = request.args.get('week')
+    your_team_id = request.args.get('your_team_id')
+    sourcing = request.args.get('sourcing', 'projected')
 
-    conn, error_msg = get_db_connection_for_league(league_id)
-    if not conn:
-        return jsonify({'error': error_msg}), 404
+    if not week or not your_team_id:
+        return jsonify({"error": "Missing 'week' or 'your_team_id' parameters."}), 400
 
+    db_path = get_db_path()
+    if not os.path.exists(db_path):
+        return jsonify({"error": "Database not found."}), 404
+
+    conn = None
     try:
-        cursor = conn.cursor()
+        conn = get_db_connection(db_path)
 
-        # Get Team IDs
-        cursor.execute("SELECT team_id FROM teams WHERE CAST(name AS TEXT) = ?", (your_team_name,))
-        your_team_id_row = cursor.fetchone()
+        # 1. Get Goalies (Rostered and Free Agents)
+        rostered_goalies = _fetch_goalies_with_ranks(conn, your_team_id, sourcing, is_roster=True)
+        free_agent_goalies = _fetch_goalies_with_ranks(conn, None, sourcing, is_roster=False)
 
-        cursor.execute("SELECT team_id FROM teams WHERE CAST(name AS TEXT) = ?", (opponent_team_name,))
-        opponent_team_id_row = cursor.fetchone()
+        # 2. Get Team Stats Summary (SOG/GA for simulation)
+        team_stats_query = "SELECT team_tricode, sogf_gm, soga_gm, gf_gm, ga_gm FROM team_stats_summary"
+        team_stats_df = pd.read_sql_query(team_stats_query, conn)
+        team_stats_map = team_stats_df.set_index('team_tricode').to_dict('index')
 
-        if not your_team_id_row:
-            return jsonify({'error': f'Team not found: {your_team_name}'}), 404
-        if not opponent_team_id_row:
-            return jsonify({'error': f'Team not found: {opponent_team_name}'}), 404
+        # 3. Get NHL Schedule for the week
+        week_dates_query = "SELECT start_date, end_date FROM weeks WHERE week_num = ?"
+        week_dates = pd.read_sql_query(week_dates_query, conn, params=(week,)).iloc[0]
 
-        your_team_id = your_team_id_row['team_id']
-        opponent_team_id = opponent_team_id_row['team_id']
+        schedule_query = """
+            SELECT game_date, home_team, away_team
+            FROM schedule
+            WHERE game_date BETWEEN ? AND ?
+            ORDER BY game_date
+        """
+        schedule_df = pd.read_sql_query(schedule_query, conn, params=(week_dates['start_date'], week_dates['end_date']))
 
-        # Get week dates
-        cursor.execute("SELECT start_date, end_date FROM weeks WHERE week_num = ?", (week_num,))
-        week_dates = cursor.fetchone()
-        if not week_dates:
-            return jsonify({'error': f'Week not found: {week_num}'}), 404
-        start_date_str = week_dates['start_date']
-        end_date_str = week_dates['end_date']
-
-        # Get stats for both teams using the helper
-        your_team_stats = _get_team_goalie_stats(cursor, your_team_id, start_date_str, end_date_str)
-        opponent_team_stats = _get_team_goalie_stats(cursor, opponent_team_id, start_date_str, end_date_str)
+        conn.close()
 
         return jsonify({
-            'your_team_stats': your_team_stats,
-            'opponent_team_stats': opponent_team_stats
+            "rostered_goalies": rostered_goalies,
+            "free_agent_goalies": free_agent_goalies,
+            "team_stats": team_stats_map,
+            "schedule": schedule_df.to_dict('records'),
+            "week_start_date": week_dates['start_date']
         })
 
     except Exception as e:
-        logging.error(f"Error fetching goalie planning stats: {e}", exc_info=True)
-        return jsonify({'error': f"An error occurred: {e}"}), 500
-    finally:
-        if conn:
-            conn.close()
+        logging.error(f"Error in get_goalie_planning_data: {e}", exc_info=True)
+        if conn: conn.close()
+        return jsonify({"error": f"An error occurred: {e}"}), 500
 
 
 @app.route('/stream')
