@@ -591,6 +591,34 @@
         playerDropDropdown.innerHTML = optionsHtml;
     }
 
+    function populateTransactionDatePicker(weekDates) {
+            if (!transactionDatePicker) return;
+
+            const previouslySelected = transactionDatePicker.value;
+            let html = '<option value="" disabled selected>Select Date</option>';
+
+            if (weekDates && weekDates.length > 0) {
+                weekDates.forEach(dateStr => {
+                    // dateStr is "YYYY-MM-DD"
+                    html += `<option value="${dateStr}">${dateStr}</option>`;
+                });
+            } else {
+                html = '<option value="" disabled selected>No dates available</option>';
+            }
+
+            transactionDatePicker.innerHTML = html;
+
+            // Attempt to restore previous selection or default to today if it's in the list
+            if (previouslySelected && weekDates.includes(previouslySelected)) {
+                transactionDatePicker.value = previouslySelected;
+            } else {
+                const today = new Date().toISOString().split('T')[0];
+                if (weekDates.includes(today)) {
+                    transactionDatePicker.value = today;
+                }
+            }
+        }
+
     function renderSimulatedMovesLog() {
         if (simulatedMoves.length === 0) {
             simLogContainer.innerHTML = '';
