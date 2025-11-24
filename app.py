@@ -238,8 +238,12 @@ def _get_daily_simulated_roster(base_roster, simulated_moves, day_str):
     simulated add/drops that have occurred up to and including that day.
     """
     # 1. Find all players dropped by this date
-    # Use int for robust matching
-    dropped_player_ids_today = {int(m['dropped_player']['player_id']) for m in simulated_moves if m['date'] <= day_str}
+    # --- MODIFIED: Check if dropped_player exists before accessing ID ---
+    dropped_player_ids_today = set()
+    for m in simulated_moves:
+        if m['date'] <= day_str and m.get('dropped_player'):
+             dropped_player_ids_today.add(int(m['dropped_player']['player_id']))
+    # --- END MODIFICATION ---
 
     daily_active_roster = []
 
@@ -250,7 +254,12 @@ def _get_daily_simulated_roster(base_roster, simulated_moves, day_str):
 
     # 3. Add simulated players who have been added AND have not been subsequently dropped
     for move in simulated_moves:
-        added_player = move['added_player']
+        # --- MODIFIED: Check if added_player exists ---
+        added_player = move.get('added_player')
+        if not added_player:
+            continue # This was a drop-only move
+        # --- END MODIFICATION ---
+
         add_date = move['date']
         added_player_id = int(added_player.get('player_id', 0))
 
