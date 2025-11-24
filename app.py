@@ -238,12 +238,10 @@ def _get_daily_simulated_roster(base_roster, simulated_moves, day_str):
     simulated add/drops that have occurred up to and including that day.
     """
     # 1. Find all players dropped by this date
-    # --- MODIFIED: Check if dropped_player exists before accessing ID ---
     dropped_player_ids_today = set()
     for m in simulated_moves:
         if m['date'] <= day_str and m.get('dropped_player'):
              dropped_player_ids_today.add(int(m['dropped_player']['player_id']))
-    # --- END MODIFICATION ---
 
     daily_active_roster = []
 
@@ -254,11 +252,11 @@ def _get_daily_simulated_roster(base_roster, simulated_moves, day_str):
 
     # 3. Add simulated players who have been added AND have not been subsequently dropped
     for move in simulated_moves:
-        # --- MODIFIED: Check if added_player exists ---
         added_player = move.get('added_player')
+
+        # [FIX] Check if added_player exists (Drop-Only moves have this as None)
         if not added_player:
-            continue # This was a drop-only move
-        # --- END MODIFICATION ---
+            continue
 
         add_date = move['date']
         added_player_id = int(added_player.get('player_id', 0))
@@ -270,7 +268,6 @@ def _get_daily_simulated_roster(base_roster, simulated_moves, day_str):
             daily_active_roster.append(added_player)
 
     return daily_active_roster
-
 
 def get_optimal_lineup(players, lineup_settings):
     """
@@ -2962,7 +2959,13 @@ def get_roster_data():
             existing_ids = {int(p.get('player_id', 0)) for p in all_players}
 
             for move in simulated_moves:
-                added = move['added_player']
+                added = move.get('added_player')
+
+                # --- [FIX] Check if added is None (Drop-Only moves) ---
+                if not added:
+                    continue
+                # ------------------------------------------------------
+
                 # Map fields if they differ (free agent object vs roster object)
                 if 'positions' in added and 'eligible_positions' not in added:
                     added['eligible_positions'] = added['positions']
