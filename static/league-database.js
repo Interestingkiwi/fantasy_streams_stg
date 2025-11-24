@@ -7,6 +7,7 @@
     const statUpdateContainer = document.getElementById('stat-update-container');
     const statUpdateCheckbox = document.getElementById('check-stat-updates');
     const logContainer = document.getElementById('log-container');
+    const infoText = document.getElementById('db-info-text');
 
     if (!statusText || !actionButton || !statUpdateContainer || !statUpdateCheckbox || !logContainer || !infoText) {
         console.error('Database page elements not found.');
