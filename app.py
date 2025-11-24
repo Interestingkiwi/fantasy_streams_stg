@@ -3604,8 +3604,9 @@ def db_action():
     data = request.get_json()
     options = {
         'capture_lineups': data.get('capture_lineups', False),
-        'skip_static': data.get('skip_static', False), # From your HTML
-        'skip_players': data.get('skip_players', False) # From your HTML
+        'roster_updates_only': data.get('roster_updates_only', False), # <--- Added
+        'skip_static': data.get('skip_static', False),
+        'skip_players': data.get('skip_players', False)
     }
 
     # --- FIX 2: Get all session data *before* starting the thread ---
@@ -3727,7 +3728,11 @@ def db_action():
             logger.info("--- Starting Database Update ---")
             logger.info(f"League ID: {data['league_id']}")
             logger.info(f"Build ID: {build_id}")
-
+            roster_updates_only = options.get('roster_updates_only', False)
+            if roster_updates_only:
+                 logger.info("Mode: Roster Updates Only")
+            else:
+                 logger.info(f"Mode: Standard Update (Capture Lineups: {options['capture_lineups']})")
             # --- FIX 4: Call the correct function from db_builder.py ---
             # And pass the new logger to it.
             result = db_builder.update_league_db(
@@ -3736,7 +3741,8 @@ def db_action():
                 data['league_id'],
                 DATA_DIR, # Pass the data directory
                 logger, # Pass the new logger
-                capture_lineups=options['capture_lineups']
+                capture_lineups=options['capture_lineups'],
+                roster_updates_only=roster_updates_only
                 # Note: I am using the function from your db_builder.py file,
                 # which does not include skip_static or skip_players.
                 # If you re-add those to league-database.html, you must
