@@ -1398,7 +1398,16 @@ def update_league_db(yq, lg, league_id, data_dir, logger, capture_lineups=False,
         sanitized_name = re.sub(r'[\\/*?:"<>|]', "", league_name_str)
         db_filename = f"yahoo-{league_id}-{sanitized_name}.db"
         db_path = os.path.join(data_dir, db_filename)
+        if not os.path.exists(db_path):
+            logger.warning(f"No database found at {db_path}.")
+            logger.warning(">>> FORCING FULL INITIALIZATION <<<")
+            capture_lineups = True       # Force Full History
+            roster_updates_only = False  # Cannot do partial on missing DB
 
+        # --- [FIX] Initialize Connection HERE (Before the if/else split) ---
+        logger.info(f"Connecting to database: {db_path}")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
         if roster_updates_only:
             logger.info(">>> ROSTER UPDATES ONLY MODE ENABLED <<<")
             logger.info("Skipping league settings, matchups, and historical stats.")
@@ -1415,6 +1424,7 @@ def update_league_db(yq, lg, league_id, data_dir, logger, capture_lineups=False,
             conn.commit()
 
         else:
+            logger.info(f">>> STANDARD UPDATE MODE (Full History: {capture_lineups}) <<<")
             # --- STANDARD FULL / PARTIAL UPDATE ---
             _create_tables(cursor, logger)
             _update_db_metadata(cursor, logger)
