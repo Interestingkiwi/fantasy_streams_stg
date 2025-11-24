@@ -1,10 +1,8 @@
 (async function() {
-    // --- [START] MODIFICATION: Update container IDs ---
     const waiverSkatersContainer = document.getElementById('waiver-skaters-container');
     const waiverGoaliesContainer = document.getElementById('waiver-goalies-container');
     const freeAgentSkatersContainer = document.getElementById('free-agent-skaters-container');
     const freeAgentGoaliesContainer = document.getElementById('free-agent-goalies-container');
-    // --- [END] MODIFICATION ---
     const errorDiv = document.getElementById('db-error-message');
     const playerSearchInput = document.getElementById('player-search');
     const checkboxesContainer = document.getElementById('category-checkboxes-container');
@@ -458,7 +456,9 @@
                 tableHtml += `<tr><td colspan="${totalColumns}" class="text-center py-4 text-gray-400">No players match the current filter.</td></tr>`;
             } else {
                 playersToDisplay.forEach(player => {
-                    const isAlreadyAdded = simulatedMoves.some(m => m.added_player.player_id === player.player_id);
+                    // --- [FIX] Check for added_player before accessing player_id ---
+                    const isAlreadyAdded = simulatedMoves.some(m => m.added_player && m.added_player.player_id === player.player_id);
+                    // --- [END FIX] ---
                     const checkboxDisabled = isAlreadyAdded ? 'disabled' : '';
                     const statusHtml = player.status ? ` <a href="https://sports.yahoo.com/nhl/players/${player.player_id}/news/" target="_blank" rel="noopener noreferrer" class="text-red-400 ml-1 hover:text-red-300 hover:underline">(${player.status})</a>` : '';
 
